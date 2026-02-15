@@ -1,0 +1,377 @@
+---
+title: "EDA Master Control"
+author: "Gaby Rodriguez"
+date: "2026-02-11"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    embed-resources: true
+execute:
+  include: true
+  eval: true
+  warning: false
+  message: false
+---
+
+# Introduction
+
+### Business Problem
+MasterControl is a SaaS provider offering two core software suites: *QX (Quality Solutions)* and *MX (Manufacturing Solutions)*. While QX has over 20 years of market maturity, MX is a newer offering launched approximately four years ago. MX currently underperforms QX with a 12.7% lead progression rate, compared to 19.7% for QX. Leadership believes the current targeting strategy results in sales pursuing leads that are less likely to convert, creating missed opportunities and inefficient resource allocation.
+
+### Analytic Problem
+Our analytic task is to identify the **industries**, **company characteristics**, and **job titles** associated with higher MX progression rates. The target variable is **Lead Outcome**, where a lead is considered successful if it reached **SQL**, **SQO**, or **Won**. Leads with no recorded outcome are excluded from the success metric.
+
+The goal of EDA is to:
+- Understand the structure and quality of the data  
+- Examine relationships between lead attributes and Lead Outcome  
+- Identify which features appear predictive and should be prioritized in modeling  
+- Detect missingness, inconsistency, and outlier behavior  
+
+### Scope
+The output of this project will be recommendations for:
+- Which industries to target  
+- Which job titles represent high-value decision makers  
+- How Marketing and Sales can prioritize outreach for the MX product  
+- Improvements to prospect data-capture on the MasterControl website  
+
+Predicting churn or customer retention is **out of scope**.
+
+### Success Metrics
+- **Primary metric:** Lead progression rate (SQL/SQO/Won)  
+- **Goal:** Increase MX progression from **12.7% → 16–18%**, moving toward the QX benchmark of 19.7%  
+
+Success means enabling MasterControl Sales to focus on high-potential profiles that historically progress at above-average rates.
+
+### Project Management
+Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the following milestones:
+- Feb 1 — Business problem statement finalized  
+- Feb 22 — EDA complete  
+- Mar 22 — Modeling & evaluation  
+- Apr 8 — Final presentation  
+
+---
+
+### Questions to Guide EDA
+
+1. **Data Quality**
+   - What variables exist? How many leads?  
+   - Are job titles and industry columns clean or messy?  
+   - Which variables have missing values?  
+   - Is the missing data random, or does it follow a pattern? 
+
+2. **Target Variable**
+   - What is the overall MX success rate?  
+   - Is the target imbalanced?  
+
+3. **Job Titles**
+   - Which job title patterns (e.g., Director, Manager, Engineer) appear most in converted leads?  
+   - Which technical/manufacturing roles convert best?  
+
+4. **Industry**
+   - Which industries show the highest conversion rates?  
+   - Are specific NAICS groups highly predictive?  
+
+5. **Account Characteristics**
+   - Do company size, revenue, or region relate to successful MX outcomes?  
+
+6. **Interactions**
+   - Do specific title + industry combinations show high conversion?  
+
+7. **Modeling Implications**
+   - Which variables look most promising?  
+   - Which variables need transformations or cleaning?  
+
+# Data Exploration
+
+### Setup
+
+```{r Setup}
+
+# install.packages
+
+library(tidyverse)
+library(janitor)
+library(skimr)
+
+```
+
+### Load Data
+
+```{r Load Data, warning=FALSE}
+
+# Load Data
+leads <- read_csv("QAL Performance for MSBA.csv")
+
+
+# Basic structure
+dim(leads)
+glimpse(leads)
+
+# Clean column names for easier coding
+leads <- clean_names(leads)
+names(leads)
+
+# Quick preview
+head(leads)
+
+# Basic summary statistics
+summary(leads)
+
+# Check missing values 
+colSums(is.na(leads))
+```
+
+
+### Dataset Overview 
+
+The leads dataset contains 16,815 rows and 14 columns. Each row represents a Qualified Account Lead (QAL) for MasterControl. After cleaning column names, the primary fields fall into the following categories:
+
+**Account / site context:**  
+
+- **acct_primary_site_function:** describes the primary activity at the customer site (e.g., Food and beverage, Small-molecule API, Sterile injectables).  
+- **acct_manufacturing_model:** indicates how manufacturing is managed (e.g., Consumer Packaged Goods, In-House, Hospital/Investor model).  
+- **acct_target_industry:** the industry segment of the account (e.g., Pharma & BioTech, Medical Device, Non-Life Science).
+
+**Contact-level information:**  
+
+- **contact_lead_title:** the job title of the lead or contact (e.g., QA Manager, VP Quality & Regulatory Affairs).  
+- **contact_lead_id:** identifier for the individual contact; may repeat if a person is tied to multiple QAL records.
+
+**QAL identifiers and lead outcomes:** 
+
+- **qal_id:** unique identifier for the QAL record.  
+- **next_stage_c:** the lead outcome or progression stage (e.g., SQL, SQO, Won, Recycled). This will be converted into a binary success indicator for modeling.
+
+**Account segmentation and territory:**  
+
+- **acct_territory_rollup:** geographic region (Americas, EMEA, APAC & Oceania).  
+- **acct_tier_rollup:** account size/tier (Small, Medium, Large), useful for segmentation.
+
+**Product and marketing channel:**  
+
+- **solution:** specific MasterControl product family engaged (Mx, Qx, Ax, Logbooks).  
+- **solution_rollup:** product family grouping used to distinguish MX from QX.  
+- **last_tactic_campaign_channel:** most recent marketing touchpoint (e.g., Email, Online Ads, Outbound Prospecting).
+
+**Time** 
+
+- **qal_cohort_date:** date when the QAL entered the pipeline, ranging from early 2024 to early 2026.
+
+All variables except the cohort date are categorical and will be treated as factors during modeling. The dataset includes a mix of account attributes, contact information, product engagement, and progression outcomes—providing multiple angles to explore what drives higher MX success.The next step is to evaluate missingness and data quality across these fields to understand how each variable will behave in downstream analysis.
+
+
+
+
+### Missing Data
+
+
+```{r }
+
+# Count missing values per column
+missing_values <- leads %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(cols = everything(),
+               names_to = "variable",
+               values_to = "n_missing") %>%
+  mutate(
+    pct_missing = 100 * n_missing / nrow(leads)
+  ) %>%
+  arrange(desc(pct_missing))
+
+missing_values
+
+```
+
+#### Missing Data Overview
+
+The dataset contains several fields with notable missingness. The table below shows the number and percentage of missing values for each variable. Three variables have substantial missingness:
+
+- **acct_primary_site_function — 40.9% missing**  
+- **acct_manufacturing_model — 40.9% missing**  
+- **contact_lead_title — 38.1% missing**
+
+These three variables represent important account and contact attributes. Their high level of missingness suggests that many QAL records lack basic information about what the site does, how it manufactures, or who the contact person is. Because job titles are central to this project, the missingness in contact_lead_title will be especially important in modeling and may require grouping into an "Unknown" category.
+
+Moderate missingness appears in:
+
+- **next_stage_c — 2.87% missing**  
+  These records have no known lead outcome and will be excluded when computing success rates.
+
+- **acct_territory_rollup — 0.79% missing**
+
+Low missingness (less than 0.3%) appears in:
+
+- **acct_target_industry (45 missing)**
+- **acct_tier_rollup (45 missing)**
+- **contact_lead_id (3 missing)**
+
+
+These complete variables can be used reliably for segmentation and cohort-based analysis.
+
+Overall, the missing data pattern indicates that contact and site-level details are inconsistently collected, while product, territory, and outcome fields are much more complete. For modeling, we will likely need to consolidate missing categories rather than impute them, since these fields represent high-cardinality categorical attributes.
+
+#### Verify Missing Values
+
+According to the data dictionary, the percentage of missing information across variables is minimal, with the exception of job titles. Specifically, the documentation reports:
+
+- **contact/lead title:** 29.21% missing  
+- **next_stage__c:** 2.37% missing  
+- **acct_territory_rollup:** 0.79% missing  
+- **acct_manufacturing_model:** 0.61% missing  
+- **acct_primary_site_function:** 0.36% missing  
+- **All other variables:** less than 0.3% missing  
+
+Based on this documentation, account-level variables such as industry, manufacturing model, and site function are expected to be highly complete and reliable for segmentation analysis.
+
+To validate these assumptions, we will verify whether the dataset used in this analysis reflects the same missingness levels reported in the data dictionary.
+
+```{r create-na-summary,  echo=FALSE, include=FALSE}
+na_summary <- leads %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "n_missing") %>%
+  mutate(pct_missing = round(100 * n_missing / nrow(leads), 2)) %>%
+  arrange(desc(pct_missing))
+
+na_summary
+```
+
+```{r verify-missing-data}
+
+# Check blank strings (optional)
+sum(leads$acct_primary_site_function == "", na.rm = TRUE)
+sum(leads$acct_manufacturing_model == "", na.rm = TRUE)
+
+dict_missing <- tibble::tribble(
+  ~variable, ~dict_pct_missing,
+  "contact_lead_title", 29.21,
+  "next_stage_c", 2.37,
+  "acct_territory_rollup", 0.79,
+  "acct_manufacturing_model", 0.61,
+  "acct_primary_site_function", 0.36,
+  "acct_tier_rollup", 0.27,
+  "acct_target_industry", 0.27,
+  "contact_lead_id", 0.02
+)
+
+compare_missing <- na_summary %>%
+  left_join(dict_missing, by = "variable") %>%
+  mutate(diff_pct = round(pct_missing - dict_pct_missing, 2)) %>%
+  arrange(desc(pct_missing))
+
+compare_missing
+
+
+```
+
+
+##### Results
+The results show that there are no blank string values in either acct_primary_site_function or acct_manufacturing_model. This confirms that missing information in these variables is recorded as NA rather than empty strings.
+
+As shown in the table comparison, the observed levels of missingness differ substantially from those reported in the data dictionary.
+
+#### Veracity of the data
+
+Some variables include placeholder categories such as “Not Enough Info Found” and “Unknown,” which reflect incomplete classification rather than true missing data. These will be treated as explicit categories in the analysis to evaluate whether incomplete enrichment affects lead progression.
+
+```{r not-enough-unknown}
+
+#unique_labels <- lapply(leads %>% select(where(is.character)), function(x) sort(unique(x)))
+#unique_labels
+
+counts_not_enough_unknown <- leads %>%
+  select(where(is.character)) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  filter(str_detect(str_to_lower(value), "not.*enough|enough.*info|unknown")) %>%
+  count(variable, value, sort = TRUE) %>%
+  group_by(variable) %>%
+  mutate(pct = round(100 * n / nrow(leads), 2)) %>%
+  ungroup()
+
+counts_not_enough_unknown
+
+
+```
+In addition to true NA values, some variables contain placeholder categories like “Not Enough Info Found” and “Unknown.” These don’t represent simple data entry gaps, but rather cases where the system could not properly classify the account. Combined with the high percentage of NA values, this suggests that account-level information is not fully complete in this dataset. Since missingness itself may be meaningful, these categories will be treated explicitly in the analysis rather than removed.
+
+### Analyzing Missing Data
+
+
+```{r Analyzing Missing Data}
+leads_clean <- leads %>%
+  filter(!is.na(next_stage_c)) %>%
+  mutate(success = if_else(next_stage_c %in% c("SQL","SQO","Won"), 1, 0))
+
+leads_clean %>%
+  mutate(site_missing = is.na(acct_primary_site_function)) %>%
+  group_by(solution_rollup, site_missing) %>%
+  summarise(
+    n = n(),
+    success_rate = round(mean(success) * 100, 2),
+    .groups = "drop"
+  )
+
+
+```
+**Does missing primary site function affect success rate?**
+
+Leads without primary site function classification show dramatically lower progression rates across both MX and QX products. For MX, success drops from 18.8% to 0.88% when site function is missing. This suggests that incomplete account classification is strongly associated with lower-quality leads.
+
+
+## Target Variable
+```{r Target Variable, include=FALSE}
+# # Filter for MX only (since that’s the focus)
+# leads_mx <- leads %>%
+#   filter(product == "MX")
+# 
+# # Define success indicator (adjust names if different)
+# leads_mx <- leads_mx %>%
+#   mutate(
+#     success = lead_outcome %in% c("SQL", "SQO", "Won")
+#   )
+# 
+# # Overall MX success rate
+# leads_mx %>%
+#   summarise(
+#     n_leads = n(),
+#     success_rate = mean(success, na.rm = TRUE)
+#   )
+# 
+# # Compare MX vs QX (if both products are present)
+# leads %>%
+#   mutate(success = lead_outcome %in% c("SQL", "SQO", "Won")) %>%
+#   group_by(product) %>%
+#   summarise(
+#     n_leads = n(),
+#     success_rate = mean(success, na.rm = TRUE)
+#   )
+
+```
+
+
+```{r Exploratory Visualizations, include=FALSE}
+# 
+# leads_mx %>%
+#   mutate(success = lead_outcome %in% c("SQL", "SQO", "Won")) %>%
+#   group_by(industry) %>%
+#   summarise(
+#     n_leads = n(),
+#     success_rate = mean(success, na.rm = TRUE)
+#   ) %>%
+#   filter(n_leads >= 20) %>%  # avoid tiny groups; adjust threshold
+#   arrange(desc(success_rate)) %>%
+#   ggplot(aes(x = reorder(industry, success_rate), y = success_rate)) +
+#   geom_col() +
+#   coord_flip() +
+#   labs(
+#     title = "MX success rate by industry (min 20 leads)",
+#     x = "Industry",
+#     y = "Success rate"
+#   ) +
+#   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+#   theme_minimal()
+
+```
