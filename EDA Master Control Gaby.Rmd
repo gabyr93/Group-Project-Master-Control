@@ -1,6 +1,6 @@
 ---
 title: "EDA Master Control"
-author: "Gaby Rodriguez"
+author: "Josh, Joel, Corinn, Gaby"
 date: "2026-02-11"
 format:
   html:
@@ -321,57 +321,3 @@ leads_clean %>%
 Leads without primary site function classification show dramatically lower progression rates across both MX and QX products. For MX, success drops from 18.8% to 0.88% when site function is missing. This suggests that incomplete account classification is strongly associated with lower-quality leads.
 
 
-## Target Variable
-```{r Target Variable, include=FALSE}
-# # Filter for MX only (since that’s the focus)
-# leads_mx <- leads %>%
-#   filter(product == "MX")
-# 
-# # Define success indicator (adjust names if different)
-# leads_mx <- leads_mx %>%
-#   mutate(
-#     success = lead_outcome %in% c("SQL", "SQO", "Won")
-#   )
-# 
-# # Overall MX success rate
-# leads_mx %>%
-#   summarise(
-#     n_leads = n(),
-#     success_rate = mean(success, na.rm = TRUE)
-#   )
-# 
-# # Compare MX vs QX (if both products are present)
-# leads %>%
-#   mutate(success = lead_outcome %in% c("SQL", "SQO", "Won")) %>%
-#   group_by(product) %>%
-#   summarise(
-#     n_leads = n(),
-#     success_rate = mean(success, na.rm = TRUE)
-#   )
-
-```
-
-
-```{r Exploratory Visualizations, include=FALSE}
-# 
-# leads_mx %>%
-#   mutate(success = lead_outcome %in% c("SQL", "SQO", "Won")) %>%
-#   group_by(industry) %>%
-#   summarise(
-#     n_leads = n(),
-#     success_rate = mean(success, na.rm = TRUE)
-#   ) %>%
-#   filter(n_leads >= 20) %>%  # avoid tiny groups; adjust threshold
-#   arrange(desc(success_rate)) %>%
-#   ggplot(aes(x = reorder(industry, success_rate), y = success_rate)) +
-#   geom_col() +
-#   coord_flip() +
-#   labs(
-#     title = "MX success rate by industry (min 20 leads)",
-#     x = "Industry",
-#     y = "Success rate"
-#   ) +
-#   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-#   theme_minimal()
-
-```
