@@ -19,70 +19,66 @@ execute:
 # Introduction
 
 ### Business Problem
+
 MasterControl is a SaaS provider offering two core software suites: *QX (Quality Solutions)* and *MX (Manufacturing Solutions)*. While QX has over 20 years of market maturity, MX is a newer offering launched approximately four years ago. MX currently underperforms QX with a 12.7% lead progression rate, compared to 19.7% for QX. Leadership believes the current targeting strategy results in sales pursuing leads that are less likely to convert, creating missed opportunities and inefficient resource allocation.
 
 ### Analytic Problem
-Our analytic task is to identify the **industries**, **company characteristics**, and **job titles** associated with higher MX progression rates. The target variable is **Lead Outcome**, where a lead is considered successful if it reached **SQL**, **SQO**, or **Won**. 
 
-The goal of EDA is to:
-- Understand the structure and quality of the data  
-- Examine relationships between lead attributes and Lead Outcome  
-- Identify which features appear predictive and should be prioritized in modeling  
-- Detect missingness, inconsistency, and outlier behavior  
+Our analytic task is to identify the **industries**, **company characteristics**, and **job titles** associated with higher MX progression rates. The target variable is **Lead Outcome**, where a lead is considered successful if it reached **SQL**, **SQO**, or **Won**.
+
+The goal of EDA is to: - Understand the structure and quality of the data\
+- Examine relationships between lead attributes and Lead Outcome\
+- Identify which features appear predictive and should be prioritized in modeling\
+- Detect missingness, inconsistency, and outlier behavior
 
 ### Scope
-The output of this project will be recommendations for:
-- Which industries to target  
-- Which job titles represent high-value decision makers  
-- How Marketing and Sales can prioritize outreach for the MX product  
-- Improvements to prospect data-capture on the MasterControl website  
+
+The output of this project will be recommendations for: - Which industries to target\
+- Which job titles represent high-value decision makers\
+- How Marketing and Sales can prioritize outreach for the MX product\
+- Improvements to prospect data-capture on the MasterControl website
 
 Predicting churn or customer retention is **out of scope**.
 
 ### Success Metrics
-- **Primary metric:** Lead progression rate (SQL/SQO/Won)  
-- **Goal:** Increase MX progression from **12.7% → 16–18%**, moving toward the QX benchmark of 19.7%  
+
+-   **Primary metric:** Lead progression rate (SQL/SQO/Won)\
+-   **Goal:** Increase MX progression from **12.7% → 16–18%**, moving toward the QX benchmark of 19.7%
 
 Success means enabling MasterControl Sales to focus on high-potential profiles that historically progress at above-average rates.
 
 ### Project Management
-Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the following milestones:
-- Feb 1 — Business problem statement finalized  
-- Feb 22 — EDA complete  
-- Mar 22 — Modeling & evaluation  
-- Apr 8 — Final presentation  
 
----
+Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the following milestones: - Feb 1 — Business problem statement finalized\
+- Feb 22 — EDA complete\
+- Mar 22 — Modeling & evaluation\
+- Apr 8 — Final presentation
+
+------------------------------------------------------------------------
 
 ### Questions to Guide EDA
 
-1. **Data Quality**
-   - What variables exist? How many leads?  
-   - Are job titles and industry columns clean or messy?  
-   - Which variables have missing values?  
-   - Is the missing data random, or does it follow a pattern? 
-
-2. **Target Variable**
-   - What is the overall MX success rate?  
-   - Is the target imbalanced?  
-
-3. **Job Titles**
-   - Which job title patterns (e.g., Director, Manager, Engineer) appear most in converted leads?  
-   - Which technical/manufacturing roles convert best?  
-
-4. **Industry**
-   - Which industries show the highest conversion rates?  
-   - Are specific NAICS groups highly predictive?  
-
-5. **Account Characteristics**
-   - Do company size, revenue, or region relate to successful MX outcomes?  
-
-6. **Interactions**
-   - Do specific title + industry combinations show high conversion?  
-
-7. **Modeling Implications**
-   - Which variables look most promising?  
-   - Which variables need transformations or cleaning?  
+1.  **Data Quality**
+    -   What variables exist? How many leads?\
+    -   Are job titles and industry columns clean or messy?\
+    -   Which variables have missing values?\
+    -   Is the missing data random, or does it follow a pattern?
+2.  **Target Variable**
+    -   What is the overall MX success rate?\
+    -   Is the target imbalanced?
+3.  **Job Titles**
+    -   Which job title patterns (e.g., Director, Manager, Engineer) appear most in converted leads?\
+    -   Which technical/manufacturing roles convert best?
+4.  **Industry**
+    -   Which industries show the highest conversion rates?\
+    -   Are specific NAICS groups highly predictive?
+5.  **Account Characteristics**
+    -   Do company size, revenue, or region relate to successful MX outcomes?
+6.  **Interactions**
+    -   Do specific title + industry combinations show high conversion?
+7.  **Modeling Implications**
+    -   Which variables look most promising?\
+    -   Which variables need transformations or cleaning?
 
 # Data Exploration
 
@@ -91,8 +87,8 @@ Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the f
 ```{r Setup, warning=FALSE}
 
 # install.packages
-pacman::p_loa(tidyverse,stringr,tidytext,quanteda,quanteda.textplots,janitor,skimr,recipes)
-
+pacman::p_load(tidyverse,stringr,tidytext,quanteda,quanteda.textplots,janitor,skimr,recipes)
+# second test
 ```
 
 ### Load Data
@@ -121,49 +117,44 @@ summary(leads)
 colSums(is.na(leads))
 ```
 
-
-### Dataset Overview 
+### Dataset Overview
 
 The leads dataset contains 16,815 rows and 14 columns. Each row represents a Qualified Account Lead (QAL) for MasterControl. After cleaning column names, the primary fields fall into the following categories:
 
-**Account / site context:**  
+**Account / site context:**
 
-- **acct_primary_site_function:** describes the primary activity at the customer site (e.g., Food and beverage, Small-molecule API, Sterile injectables).  
-- **acct_manufacturing_model:** indicates how manufacturing is managed (e.g., Consumer Packaged Goods, In-House, Hospital/Investor model).  
-- **acct_target_industry:** the industry segment of the account (e.g., Pharma & BioTech, Medical Device, Non-Life Science).
+-   **acct_primary_site_function:** describes the primary activity at the customer site (e.g., Food and beverage, Small-molecule API, Sterile injectables).\
+-   **acct_manufacturing_model:** indicates how manufacturing is managed (e.g., Consumer Packaged Goods, In-House, Hospital/Investor model).\
+-   **acct_target_industry:** the industry segment of the account (e.g., Pharma & BioTech, Medical Device, Non-Life Science).
 
-**Contact-level information:**  
+**Contact-level information:**
 
-- **contact_lead_title:** the job title of the lead or contact (e.g., QA Manager, VP Quality & Regulatory Affairs).  
-- **contact_lead_id:** identifier for the individual contact; may repeat if a person is tied to multiple QAL records.
+-   **contact_lead_title:** the job title of the lead or contact (e.g., QA Manager, VP Quality & Regulatory Affairs).\
+-   **contact_lead_id:** identifier for the individual contact; may repeat if a person is tied to multiple QAL records.
 
-**QAL identifiers and lead outcomes:** 
+**QAL identifiers and lead outcomes:**
 
-- **qal_id:** unique identifier for the QAL record.  
-- **next_stage_c:** the lead outcome or progression stage (e.g., SQL, SQO, Won, Recycled). This will be converted into a binary success indicator for modeling.
+-   **qal_id:** unique identifier for the QAL record.\
+-   **next_stage_c:** the lead outcome or progression stage (e.g., SQL, SQO, Won, Recycled). This will be converted into a binary success indicator for modeling.
 
-**Account segmentation and territory:**  
+**Account segmentation and territory:**
 
-- **acct_territory_rollup:** geographic region (Americas, EMEA, APAC & Oceania).  
-- **acct_tier_rollup:** account size/tier (Small, Medium, Large), useful for segmentation.
+-   **acct_territory_rollup:** geographic region (Americas, EMEA, APAC & Oceania).\
+-   **acct_tier_rollup:** account size/tier (Small, Medium, Large), useful for segmentation.
 
-**Product and marketing channel:**  
+**Product and marketing channel:**
 
-- **solution:** specific MasterControl product family engaged (Mx, Qx, Ax, Logbooks).  
-- **solution_rollup:** product family grouping used to distinguish MX from QX.  
-- **last_tactic_campaign_channel:** most recent marketing touchpoint (e.g., Email, Online Ads, Outbound Prospecting).
+-   **solution:** specific MasterControl product family engaged (Mx, Qx, Ax, Logbooks).\
+-   **solution_rollup:** product family grouping used to distinguish MX from QX.\
+-   **last_tactic_campaign_channel:** most recent marketing touchpoint (e.g., Email, Online Ads, Outbound Prospecting).
 
-**Time** 
+**Time**
 
-- **qal_cohort_date:** date when the QAL entered the pipeline, ranging from early 2024 to early 2026.
+-   **qal_cohort_date:** date when the QAL entered the pipeline, ranging from early 2024 to early 2026.
 
 All variables except the cohort date are categorical and will be treated as factors during modeling. The dataset includes a mix of account attributes, contact information, product engagement, and progression outcomes—providing multiple angles to explore what drives higher MX success.The next step is to evaluate missingness and data quality across these fields to understand how each variable will behave in downstream analysis.
 
-
-
-
 ### Missing Data
-
 
 ```{r }
 
@@ -186,25 +177,24 @@ missing_values
 
 The dataset contains several fields with notable missingness. The table below shows the number and percentage of missing values for each variable. Three variables have substantial missingness:
 
-- **acct_primary_site_function — 40.9% missing**  
-- **acct_manufacturing_model — 40.9% missing**  
-- **contact_lead_title — 38.1% missing**
+-   **acct_primary_site_function — 40.9% missing**\
+-   **acct_manufacturing_model — 40.9% missing**\
+-   **contact_lead_title — 38.1% missing**
 
 These three variables represent important account and contact attributes. Their high level of missingness suggests that many QAL records lack basic information about what the site does, how it manufactures, or who the contact person is. Because job titles are central to this project, the missingness in contact_lead_title will be especially important in modeling and may require grouping into an "Unknown" category.
 
 Moderate missingness appears in:
 
-- **next_stage_c — 2.87% missing**  
-  These records have no known lead outcome and will be excluded when computing success rates.
+-   **next_stage_c — 2.87% missing**\
+    These records have no known lead outcome and will be excluded when computing success rates.
 
-- **acct_territory_rollup — 0.79% missing**
+-   **acct_territory_rollup — 0.79% missing**
 
 Low missingness (less than 0.3%) appears in:
 
-- **acct_target_industry (45 missing)**
-- **acct_tier_rollup (45 missing)**
-- **contact_lead_id (3 missing)**
-
+-   **acct_target_industry (45 missing)**
+-   **acct_tier_rollup (45 missing)**
+-   **contact_lead_id (3 missing)**
 
 These complete variables can be used reliably for segmentation and cohort-based analysis.
 
@@ -214,12 +204,12 @@ Overall, the missing data pattern indicates that contact and site-level details 
 
 According to the data dictionary, the percentage of missing information across variables is minimal, with the exception of job titles. Specifically, the documentation reports:
 
-- **contact/lead title:** 29.21% missing  
-- **next_stage__c:** 2.37% missing  
-- **acct_territory_rollup:** 0.79% missing  
-- **acct_manufacturing_model:** 0.61% missing  
-- **acct_primary_site_function:** 0.36% missing  
-- **All other variables:** less than 0.3% missing  
+-   **contact/lead title:** 29.21% missing\
+-   \*\*next_stage\_\_c:\*\* 2.37% missing\
+-   **acct_territory_rollup:** 0.79% missing\
+-   **acct_manufacturing_model:** 0.61% missing\
+-   **acct_primary_site_function:** 0.36% missing\
+-   **All other variables:** less than 0.3% missing
 
 Based on this documentation, account-level variables such as industry, manufacturing model, and site function are expected to be highly complete and reliable for segmentation analysis.
 
@@ -263,8 +253,8 @@ compare_missing
 
 ```
 
-
 ##### Results
+
 The results show that there are no blank string values in either acct_primary_site_function or acct_manufacturing_model. This confirms that missing information in these variables is recorded as NA rather than empty strings.
 
 As shown in the table comparison, the observed levels of missingness differ substantially from those reported in the data dictionary.
@@ -292,20 +282,20 @@ counts_not_enough_unknown
 
 
 ```
+
 In addition to true NA values, some variables contain placeholder categories like “Not Enough Info Found” and “Unknown.” These don’t represent simple data entry gaps, but rather cases where the system could not properly classify the account. Combined with the high percentage of NA values, this suggests that account-level information is not fully complete in this dataset. Since missingness itself may be meaningful, these categories will be treated explicitly in the analysis rather than removed.
 
 ### Analyzing Missing Data
 
 ##### Missingness vs. Lead Progression (Success Rate by Product)
 
-In this section, we test whether **missing enrichment fields** are associated with lower lead progression (i.e., whether missingness is **random** or acts as a **signal** of lead quality). 
+In this section, we test whether **missing enrichment fields** are associated with lower lead progression (i.e., whether missingness is **random** or acts as a **signal** of lead quality).
 
-First, we restrict the dataset to leads with a **known outcome** (`next_stage_c`) so we can compute success rates reliably. We then create a binary target variable, `success`, where leads that reached **SQL, SQO, or Won** are labeled `1` and all other outcomes are labeled `0`. 
+First, we restrict the dataset to leads with a **known outcome** (`next_stage_c`) so we can compute success rates reliably. We then create a binary target variable, `success`, where leads that reached **SQL, SQO, or Won** are labeled `1` and all other outcomes are labeled `0`.
 
-Next, we create indicator flags that capture whether key enrichment fields are missing: site function (`site_missing`), manufacturing model (`mfg_missing`), and job title (`title_missing`), plus a combined flag (`site_or_mfg_missing`) that identifies leads missing either site or manufacturing information. 
+Next, we create indicator flags that capture whether key enrichment fields are missing: site function (`site_missing`), manufacturing model (`mfg_missing`), and job title (`title_missing`), plus a combined flag (`site_or_mfg_missing`) that identifies leads missing either site or manufacturing information.
 
 Finally, we summarize the **count of leads** and the **success rate** for missing vs not-missing groups, broken out by `solution_rollup` (Mx, Qx, Ax), and visualize the results to compare progression rates across products and missingness conditions.
-
 
 ```{r Analyzing Missing Data}
 
@@ -372,25 +362,25 @@ ggplot(plot_df, aes(x = solution_rollup, y = success_rate, fill = missing_flag))
 
 Missing enrichment is **strongly linked to lower progression**, especially for **site function + manufacturing model**.
 
-- **MX:** `site_or_mfg_missing` = TRUE → **0.88%** (n=1,360) vs FALSE → **18.84%** (n=2,765).  
-  `title_missing` = TRUE → **8.89%** (n=1,158) vs FALSE → **14.49%** (n=2,967).
+-   **MX:** `site_or_mfg_missing` = TRUE → **0.88%** (n=1,360) vs FALSE → **18.84%** (n=2,765).\
+    `title_missing` = TRUE → **8.89%** (n=1,158) vs FALSE → **14.49%** (n=2,967).
 
-- **QX:** `site_or_mfg_missing` = TRUE → **1.23%** (n=5,291) vs FALSE → **34.95%** (n=6,889).  
-  `title_missing` = TRUE → **12.90%** (n=5,025) vs FALSE → **25.51%** (n=7,155).
+-   **QX:** `site_or_mfg_missing` = TRUE → **1.23%** (n=5,291) vs FALSE → **34.95%** (n=6,889).\
+    `title_missing` = TRUE → **12.90%** (n=5,025) vs FALSE → **25.51%** (n=7,155).
 
-- **AX:** large differences but **very small n (13–14)** → interpret cautiously.
+-   **AX:** large differences but **very small n (13–14)** → interpret cautiously.
 
 **Conclusion:** missingness is **not random** and should be kept as a **signal** (use missingness flags or explicit “Missing/Unknown” categories in modeling).
 
 #### **Find a pattern with missing data**
+
 ##### MX Only: Where True Missingness Clusters
 
 ###### Composition of NA-Missing Leads by Channel, Tier, Territory, and Industry
 
-In this section, we focus specifically on **MX leads** to understand whether missing enrichment fields follow a consistent pattern. We first restrict the data to records with a **known outcome** (`next_stage_c`) so success rates are comparable, then create a binary `success` indicator (SQL/SQO/Won = 1, otherwise = 0). Next, we define two missingness flags: `site_or_mfg_missing` (missing either site function or manufacturing model) and `title_missing` (missing job title). 
+In this section, we focus specifically on **MX leads** to understand whether missing enrichment fields follow a consistent pattern. We first restrict the data to records with a **known outcome** (`next_stage_c`) so success rates are comparable, then create a binary `success` indicator (SQL/SQO/Won = 1, otherwise = 0). Next, we define two missingness flags: `site_or_mfg_missing` (missing either site function or manufacturing model) and `title_missing` (missing job title).
 
 Using these flags, we compare the composition of the missing vs not-missing groups across key categorical dimensions—**marketing channel**, **account tier**, **territory**, and **target industry**—by calculating within-group percentages. This helps identify where missingness is concentrated (e.g., specific channels or industries), and provides evidence that missing values may reflect systematic differences in lead source or profile rather than random data entry gaps.
-
 
 ```{r NA Sample Pattern}
 mx_miss <- leads %>%
@@ -458,47 +448,43 @@ mx_miss %>%
 
 ```
 
-
-
 ##### Interpretation of the Output (MX)
 
 Missing site/manufacturing enrichment in **MX** is **not random**. When this info is missing, leads are more likely to be **Small tier** (32.94% vs 16.60%) and more likely to come from **digital/inbound channels** (Online Ads, SEO, Direct/Inbound, Directory Listing), while being less associated with **Email/External Demand Gen**.
 
 Missingness also varies by **region and industry**: the missing group is **less concentrated in the Americas** (49.04% vs 55.08%) and more in **EMEA** (28.53% vs 22.24%). The strongest pattern is **industry**—missing leads are much more likely to be **Non-Life Science** (50.96% vs 13.35%) and less likely to be **Pharma & BioTech** or **Medical Device**.
 
-**Conclusion:**
-These missing values are not happening by accident. For MX leads, “missing site/manufacturing info” shows up more often in certain types of leads:
+**Conclusion:** These missing values are not happening by accident. For MX leads, “missing site/manufacturing info” shows up more often in certain types of leads:
 
-- smaller accounts
+-   smaller accounts
 
-- leads coming from digital/inbound channels (online ads, SEO, direct/inbound, directory)
+-   leads coming from digital/inbound channels (online ads, SEO, direct/inbound, directory)
 
-- leads from EMEA more than the Americas
+-   leads from EMEA more than the Americas
 
-- leads in Non-Life Science more than Pharma & BioTech or Medical Device
+-   leads in Non-Life Science more than Pharma & BioTech or Medical Device
 
 This matters because it means “missing” is telling us something about the lead itself and how it entered the system. In practice, missing enrichment can be treated like a warning sign that the lead may be lower quality or less well-qualified, or that the channel/source collects less complete information.
 
-#### **MX Only: Where Low-Enrichment (“Low Info”) Clusters **
+#### **MX Only: Where Low-Enrichment (“Low Info”) Clusters**
+
 ##### Composition of Low-Info Leads Using NA + Placeholder Values
 
 In this section, we expand the definition of “missing” enrichment beyond true `NA` values. For two key fields—`acct_primary_site_function` and `acct_manufacturing_model`.We create a **Low Info** indicator that captures both:
 
-- **True missing values (`NA`)**, and
+-   **True missing values (`NA`)**, and
 
-- **Placeholder values** that represent incomplete enrichment (e.g., "Unknown", "Not Enough Info Found", "MISSING/BLANK", or empty strings).
-
+-   **Placeholder values** that represent incomplete enrichment (e.g., "Unknown", "Not Enough Info Found", "MISSING/BLANK", or empty strings).
 
 Then we focus only on MX leads with a known outcome, and we compare the composition of the Low Info group vs the not Low Info group across:
 
-- marketing channel (last_tactic_campaign_channel)
+-   marketing channel (last_tactic_campaign_channel)
 
-- account tier (acct_tier_rollup)
+-   account tier (acct_tier_rollup)
 
-- territory (acct_territory_rollup)
+-   territory (acct_territory_rollup)
 
-- target industry (acct_target_industry)
-
+-   target industry (acct_target_industry)
 
 ```{r Pattern Check Including Low Info Bucket (MX)}
 
@@ -551,17 +537,18 @@ mx_lowinfo %>%
   arrange(site_or_mfg_lowinfo, desc(pct)) %>%
   slice_head(n = 10)
 ```
+
 #### Conclusion
+
 For MX, “Low Info” enrichment is a meaningful signal. It is more common for:
 
-- smaller accounts
+-   smaller accounts
 
-- digital/inbound channels (Online Ads, SEO, Directory Listing)
+-   digital/inbound channels (Online Ads, SEO, Directory Listing)
 
-- EMEA compared to the Americas
+-   EMEA compared to the Americas
 
-- Non-Life Science accounts (much higher share than in the complete-enrichment group)
-
+-   Non-Life Science accounts (much higher share than in the complete-enrichment group)
 
 Because these differences are large (especially by industry), we should not treat missing/placeholder values as random noise. Instead, we can keep a Low Info flag as a feature and/or combine missing/placeholder categories into a consistent Low Info level for modeling.
 
@@ -571,18 +558,15 @@ In this section, we create a cleaned version of the leads dataset that we can us
 
 #### **Steps:**
 
-- Keep all original columns 
+-   Keep all original columns
 
-- Standardize “missing-like” text in categorical fields by converting blanks and placeholder values (e.g., "Unknown", "Not Enough Info Found", "MISSING/BLANK") into true NA.
+-   Standardize “missing-like” text in categorical fields by converting blanks and placeholder values (e.g., "Unknown", "Not Enough Info Found", "MISSING/BLANK") into true NA.
 
-- Use a recipes pipeline to replace NA values in categorical predictor columns only with a consistent category level called "Low Info" so incomplete enrichment is explicit and rows are retained.
+-   Use a recipes pipeline to replace NA values in categorical predictor columns only with a consistent category level called "Low Info" so incomplete enrichment is explicit and rows are retained.
 
-- Create indicator flags (site_lowinfo, mfg_lowinfo, title_lowinfo, site_or_mfg_lowinfo) that capture whether key enrichment fields ended up as "Low Info".
+-   Create indicator flags (site_lowinfo, mfg_lowinfo, title_lowinfo, site_or_mfg_lowinfo) that capture whether key enrichment fields ended up as "Low Info".
 
--  We **do not modify** `next_stage_c` in the recipe because it represents the outcome; any missing outcomes remain missing and are handled separately when computing success rates.
-
-
-
+-   We **do not modify** `next_stage_c` in the recipe because it represents the outcome; any missing outcomes remain missing and are handled separately when computing success rates.
 
 ```{r Recipe-Cleaning}
 
@@ -635,21 +619,23 @@ table(leads_cleaned_only$site_or_mfg_lowinfo, useNA = "ifany")
 
 
 ```
+
 #### Interpretation (Clean Dataset checks)
 
+-   **Shape:** The full dataset (`leads`) contains **16,815 rows** and **14 columns**.\
+    For modeling, we drop rows with missing outcome (`next_stage_c`), resulting in **16,332 rows**.\
+    After applying the recipe, the cleaned modeling dataset keeps **all 16,332 rows** and increases to **18 columns** because we added 4 flags:\
+    `site_lowinfo`, `mfg_lowinfo`, `title_lowinfo`, `site_or_mfg_lowinfo`.
 
-- **Shape:** The full dataset (`leads`) contains **16,815 rows** and **14 columns**.  
-  For modeling, we drop rows with missing outcome (`next_stage_c`), resulting in **16,332 rows**.  
-  After applying the recipe, the cleaned modeling dataset keeps **all 16,332 rows** and increases to **18 columns** because we added 4 flags:  
-  `site_lowinfo`, `mfg_lowinfo`, `title_lowinfo`, `site_or_mfg_lowinfo`.
+-   **Missing values after recipe (`colSums(is.na())`):**
 
-- **Missing values after recipe (`colSums(is.na())`):**
-  - `acct_primary_site_function`, `acct_manufacturing_model`, `contact_lead_title` now have **0 NA** because NAs + placeholder values were standardized and replaced with the factor level **"Low Info"**.
-  - `next_stage_c` has **0 NA** in the cleaned modeling dataset because rows with missing outcomes were removed **before** the recipe (`filter(!is.na(next_stage_c))`).
-  - `contact_lead_id` still has **2 NA** (ID column kept as-is and not imputed).
+    -   `acct_primary_site_function`, `acct_manufacturing_model`, `contact_lead_title` now have **0 NA** because NAs + placeholder values were standardized and replaced with the factor level **"Low Info"**.
+    -   `next_stage_c` has **0 NA** in the cleaned modeling dataset because rows with missing outcomes were removed **before** the recipe (`filter(!is.na(next_stage_c))`).
+    -   `contact_lead_id` still has **2 NA** (ID column kept as-is and not imputed).
 
-- **Low-info flag (`table(site_or_mfg_lowinfo)`):**
-  - `FALSE = 7,859`: both site + manufacturing enrichment are present (not **"Low Info"**)
-  - `TRUE  = 8,473`: **at least one** of site or manufacturing is **"Low Info"**
+-   **Low-info flag (`table(site_or_mfg_lowinfo)`):**
+
+    -   `FALSE = 7,859`: both site + manufacturing enrichment are present (not **"Low Info"**)
+    -   `TRUE  = 8,473`: **at least one** of site or manufacturing is **"Low Info"**
 
 **Key takeaway:** After restricting to leads with known outcomes, low-enrichment (**"Low Info"**) values remain very common and should be treated as signal rather than noise. We standardize missing/placeholder values into a consistent **"Low Info"** category for categorical predictors and create indicator flags (e.g., `site_or_mfg_lowinfo`, `title_lowinfo`) so downstream models can learn the relationship between enrichment quality and lead progression.
