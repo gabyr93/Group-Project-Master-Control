@@ -22,7 +22,7 @@ execute:
 MasterControl is a SaaS provider offering two core software suites: *QX (Quality Solutions)* and *MX (Manufacturing Solutions)*. While QX has over 20 years of market maturity, MX is a newer offering launched approximately four years ago. MX currently underperforms QX with a 12.7% lead progression rate, compared to 19.7% for QX. Leadership believes the current targeting strategy results in sales pursuing leads that are less likely to convert, creating missed opportunities and inefficient resource allocation.
 
 ### Analytic Problem
-Our analytic task is to identify the **industries**, **company characteristics**, and **job titles** associated with higher MX progression rates. The target variable is **Lead Outcome**, where a lead is considered successful if it reached **SQL**, **SQO**, or **Won**. Leads with no recorded outcome are excluded from the success metric.
+Our analytic task is to identify the **industries**, **company characteristics**, and **job titles** associated with higher MX progression rates. The target variable is **Lead Outcome**, where a lead is considered successful if it reached **SQL**, **SQO**, or **Won**. 
 
 The goal of EDA is to:
 - Understand the structure and quality of the data  
@@ -88,13 +88,17 @@ Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the f
 
 ### Setup
 
-```{r Setup}
+```{r Setup, warning=FALSE}
 
 # install.packages
 
 library(tidyverse)
 library(janitor)
 library(skimr)
+
+library(recipes)
+library(stringr)
+
 
 ```
 
@@ -299,25 +303,360 @@ In addition to true NA values, some variables contain placeholder categories lik
 
 ### Analyzing Missing Data
 
+##### Missingness vs. Lead Progression (Success Rate by Product)
+
+In this section, we test whether **missing enrichment fields** are associated with lower lead progression (i.e., whether missingness is **random** or acts as a **signal** of lead quality). 
+
+First, we restrict the dataset to leads with a **known outcome** (`next_stage_c`) so we can compute success rates reliably. We then create a binary target variable, `success`, where leads that reached **SQL, SQO, or Won** are labeled `1` and all other outcomes are labeled `0`. 
+
+Next, we create indicator flags that capture whether key enrichment fields are missing: site function (`site_missing`), manufacturing model (`mfg_missing`), and job title (`title_missing`), plus a combined flag (`site_or_mfg_missing`) that identifies leads missing either site or manufacturing information. 
+
+Finally, we summarize the **count of leads** and the **success rate** for missing vs not-missing groups, broken out by `solution_rollup` (Mx, Qx, Ax), and visualize the results to compare progression rates across products and missingness conditions.
+
 
 ```{r Analyzing Missing Data}
+
+
+# Keep only rows with a known outcome, and create binary success target
 leads_clean <- leads %>%
   filter(!is.na(next_stage_c)) %>%
   mutate(success = if_else(next_stage_c %in% c("SQL","SQO","Won"), 1, 0))
 
-leads_clean %>%
-  mutate(site_missing = is.na(acct_primary_site_function)) %>%
-  group_by(solution_rollup, site_missing) %>%
+# Create missingness flags for the key enrichment fields (plus combined flag)
+leads_clean_flags <- leads_clean %>%
+  mutate(
+    site_missing        = is.na(acct_primary_site_function),
+    mfg_missing         = is.na(acct_manufacturing_model),
+    title_missing       = is.na(contact_lead_title),
+    site_or_mfg_missing = site_missing | mfg_missing
+  )
+
+# Reshape to long format and compute counts + success rates
+missingness_results <- leads_clean_flags %>%
+  pivot_longer(
+    cols = c(site_missing, mfg_missing, site_or_mfg_missing, title_missing),
+    names_to = "missing_type",
+    values_to = "missing_flag"
+  ) %>%
+  group_by(solution_rollup, missing_type, missing_flag) %>%
   summarise(
     n = n(),
     success_rate = round(mean(success) * 100, 2),
     .groups = "drop"
+  ) %>%
+  arrange(solution_rollup, missing_type, desc(missing_flag))
+
+plot_df <- missingness_results %>%
+  filter(missing_type %in% c("site_or_mfg_missing", "title_missing")) %>%
+  mutate(
+    missing_flag = if_else(missing_flag, "Missing", "Not missing"),
+    missing_type = recode(
+      missing_type,
+      "site_or_mfg_missing" = "Site OR Manufacturing Missing",
+      "title_missing" = "Job Title Missing"
+    )
   )
+
+plot_df
+
+ggplot(plot_df, aes(x = solution_rollup, y = success_rate, fill = missing_flag)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste0("n=", n)),
+            position = position_dodge(width = 0.9),
+            vjust = -0.3, size = 3) +
+  facet_wrap(~ missing_type) +
+  labs(
+    title = "Lead Progression Rate by Missing Enrichment",
+    x = "Solution Rollup",
+    y = "Success Rate (%)",
+    fill = ""
+  ) +
+  theme_minimal()
+
+```
+
+##### Interpretation of Output
+
+Missing enrichment is **strongly linked to lower progression**, especially for **site function + manufacturing model**.
+
+- **MX:** `site_or_mfg_missing` = TRUE → **0.88%** (n=1,360) vs FALSE → **18.84%** (n=2,765).  
+  `title_missing` = TRUE → **8.89%** (n=1,158) vs FALSE → **14.49%** (n=2,967).
+
+- **QX:** `site_or_mfg_missing` = TRUE → **1.23%** (n=5,291) vs FALSE → **34.95%** (n=6,889).  
+  `title_missing` = TRUE → **12.90%** (n=5,025) vs FALSE → **25.51%** (n=7,155).
+
+- **AX:** large differences but **very small n (13–14)** → interpret cautiously.
+
+**Conclusion:** missingness is **not random** and should be kept as a **signal** (use missingness flags or explicit “Missing/Unknown” categories in modeling).
+
+#### **Find a pattern with missing data**
+##### MX Only: Where True Missingness Clusters
+
+###### Composition of NA-Missing Leads by Channel, Tier, Territory, and Industry
+
+In this section, we focus specifically on **MX leads** to understand whether missing enrichment fields follow a consistent pattern. We first restrict the data to records with a **known outcome** (`next_stage_c`) so success rates are comparable, then create a binary `success` indicator (SQL/SQO/Won = 1, otherwise = 0). Next, we define two missingness flags: `site_or_mfg_missing` (missing either site function or manufacturing model) and `title_missing` (missing job title). 
+
+Using these flags, we compare the composition of the missing vs not-missing groups across key categorical dimensions—**marketing channel**, **account tier**, **territory**, and **target industry**—by calculating within-group percentages. This helps identify where missingness is concentrated (e.g., specific channels or industries), and provides evidence that missing values may reflect systematic differences in lead source or profile rather than random data entry gaps.
+
+
+```{r NA Sample Pattern}
+mx_miss <- leads %>%
+  filter(!is.na(next_stage_c)) %>%
+  mutate(success = if_else(next_stage_c %in% c("SQL","SQO","Won"), 1, 0)) %>%
+  filter(solution_rollup == "Mx") %>%
+  mutate(
+    site_or_mfg_missing = is.na(acct_primary_site_function) | is.na(acct_manufacturing_model),
+    title_missing = is.na(contact_lead_title)
+  )
+
+# Pattern: NA group mix by channel (top 10)
+mx_miss %>%
+  group_by(site_or_mfg_missing, last_tactic_campaign_channel) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_missing) %>%
+  mutate(pct = round(100 * n / sum(n), 2)) %>%
+  arrange(site_or_mfg_missing, desc(pct)) %>%
+  slice_head(n = 10)
+
+# Pattern: NA group mix by tier
+mx_miss %>%
+  group_by(site_or_mfg_missing, acct_tier_rollup) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_missing) %>%
+  mutate(pct = round(100 * n / sum(n), 2)) %>%
+  arrange(site_or_mfg_missing, desc(pct))
+
+# Visualization
+mx_miss %>%
+  group_by(site_or_mfg_missing, last_tactic_campaign_channel) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_missing) %>%
+  mutate(pct = n / sum(n)) %>%
+  ggplot(aes(x = reorder(last_tactic_campaign_channel, pct), y = pct, fill = site_or_mfg_missing)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(
+    title = "MX: Channel composition for leads with vs without Site/Manufacturing missing",
+    x = "Last Tactic Campaign Channel",
+    y = "Share within group",
+    fill = "Site/Mfg Missing"
+  ) +
+  theme_minimal()
+
+#  Pattern: NA group mix by territory (MX)
+mx_miss %>%
+  group_by(site_or_mfg_missing, acct_territory_rollup) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_missing) %>%
+  mutate(pct = round(100 * n / sum(n), 2)) %>%
+  arrange(site_or_mfg_missing, desc(pct))
+
+# Pattern: NA group mix by target industry (MX) - top 10
+mx_miss %>%
+  group_by(site_or_mfg_missing, acct_target_industry) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_missing) %>%
+  mutate(pct = round(100 * n / sum(n), 2)) %>%
+  arrange(site_or_mfg_missing, desc(pct)) %>%
+  slice_head(n = 10)
+
+
 
 
 ```
-**Does missing primary site function affect success rate?**
-
-Leads without primary site function classification show dramatically lower progression rates across both MX and QX products. For MX, success drops from 18.8% to 0.88% when site function is missing. This suggests that incomplete account classification is strongly associated with lower-quality leads.
 
 
+
+##### Interpretation of the Output (MX)
+
+Missing site/manufacturing enrichment in **MX** is **not random**. When this info is missing, leads are more likely to be **Small tier** (32.94% vs 16.60%) and more likely to come from **digital/inbound channels** (Online Ads, SEO, Direct/Inbound, Directory Listing), while being less associated with **Email/External Demand Gen**.
+
+Missingness also varies by **region and industry**: the missing group is **less concentrated in the Americas** (49.04% vs 55.08%) and more in **EMEA** (28.53% vs 22.24%). The strongest pattern is **industry**—missing leads are much more likely to be **Non-Life Science** (50.96% vs 13.35%) and less likely to be **Pharma & BioTech** or **Medical Device**.
+
+**Conclusion:**
+These missing values are not happening by accident. For MX leads, “missing site/manufacturing info” shows up more often in certain types of leads:
+
+- smaller accounts
+
+- leads coming from digital/inbound channels (online ads, SEO, direct/inbound, directory)
+
+- leads from EMEA more than the Americas
+
+- leads in Non-Life Science more than Pharma & BioTech or Medical Device
+
+This matters because it means “missing” is telling us something about the lead itself and how it entered the system. In practice, missing enrichment can be treated like a warning sign that the lead may be lower quality or less well-qualified, or that the channel/source collects less complete information.
+
+#### **MX Only: Where Low-Enrichment (“Low Info”) Clusters **
+##### Composition of Low-Info Leads Using NA + Placeholder Values
+
+In this section, we expand the definition of “missing” enrichment beyond true `NA` values. For two key fields—`acct_primary_site_function` and `acct_manufacturing_model`.We create a **Low Info** indicator that captures both:
+
+- **True missing values (`NA`)**, and
+
+- **Placeholder values** that represent incomplete enrichment (e.g., "Unknown", "Not Enough Info Found", "MISSING/BLANK", or empty strings).
+
+
+Then we focus only on MX leads with a known outcome, and we compare the composition of the Low Info group vs the not Low Info group across:
+
+- marketing channel (last_tactic_campaign_channel)
+
+- account tier (acct_tier_rollup)
+
+- territory (acct_territory_rollup)
+
+- target industry (acct_target_industry)
+
+
+```{r Pattern Check Including Low Info Bucket (MX)}
+
+mx_lowinfo <- leads %>%
+  filter(!is.na(next_stage_c)) %>%
+  mutate(success = if_else(next_stage_c %in% c("SQL","SQO","Won"), 1, 0)) %>%
+  filter(solution_rollup == "Mx") %>%
+  mutate(
+    # define "low info" as NA OR placeholders
+    site_lowinfo =
+      is.na(acct_primary_site_function) |
+      str_to_lower(str_trim(acct_primary_site_function)) %in% c("unknown", "not enough info found", "missing/blank", ""),
+    mfg_lowinfo =
+      is.na(acct_manufacturing_model) |
+      str_to_lower(str_trim(acct_manufacturing_model)) %in% c("unknown", "not enough info found", "missing/blank", ""),
+    site_or_mfg_lowinfo = site_lowinfo | mfg_lowinfo
+  )
+
+# 1) Channel mix
+mx_lowinfo %>%
+  group_by(site_or_mfg_lowinfo, last_tactic_campaign_channel) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_lowinfo) %>%
+  mutate(pct = round(100 * n / sum(n), 2)) %>%
+  arrange(site_or_mfg_lowinfo, desc(pct)) %>%
+  slice_head(n = 10)
+
+# 2) Tier mix
+mx_lowinfo %>%
+  group_by(site_or_mfg_lowinfo, acct_tier_rollup) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_lowinfo) %>%
+  mutate(pct = round(100 * n / sum(n), 2)) %>%
+  arrange(site_or_mfg_lowinfo, desc(pct))
+
+# 3) Territory mix
+mx_lowinfo %>%
+  group_by(site_or_mfg_lowinfo, acct_territory_rollup) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_lowinfo) %>%
+  mutate(pct = round(100 * n / sum(n), 2)) %>%
+  arrange(site_or_mfg_lowinfo, desc(pct))
+
+# 4) Target industry mix (top 10)
+mx_lowinfo %>%
+  group_by(site_or_mfg_lowinfo, acct_target_industry) %>%
+  summarise(n = n(), .groups="drop") %>%
+  group_by(site_or_mfg_lowinfo) %>%
+  mutate(pct = round(100 * n / sum(n), 2)) %>%
+  arrange(site_or_mfg_lowinfo, desc(pct)) %>%
+  slice_head(n = 10)
+```
+#### Conclusion
+For MX, “Low Info” enrichment is a meaningful signal. It is more common for:
+
+- smaller accounts
+
+- digital/inbound channels (Online Ads, SEO, Directory Listing)
+
+- EMEA compared to the Americas
+
+- Non-Life Science accounts (much higher share than in the complete-enrichment group)
+
+
+Because these differences are large (especially by industry), we should not treat missing/placeholder values as random noise. Instead, we can keep a Low Info flag as a feature and/or combine missing/placeholder categories into a consistent Low Info level for modeling.
+
+### Clean Dataset
+
+In this section, we create a cleaned version of the leads dataset that we can use for EDA (and later modeling) without removing rows.
+
+#### **Steps:**
+
+- Keep all original columns 
+
+- Standardize “missing-like” text in categorical fields by converting blanks and placeholder values (e.g., "Unknown", "Not Enough Info Found", "MISSING/BLANK") into true NA.
+
+- Use a recipes pipeline to replace NA values in categorical predictor columns only with a consistent category level called "Low Info" so incomplete enrichment is explicit and rows are retained.
+
+- Create indicator flags (site_lowinfo, mfg_lowinfo, title_lowinfo, site_or_mfg_lowinfo) that capture whether key enrichment fields ended up as "Low Info".
+
+-  We **do not modify** `next_stage_c` in the recipe because it represents the outcome; any missing outcomes remain missing and are handled separately when computing success rates.
+
+
+
+
+```{r Recipe-Cleaning}
+
+# Drop rows with missing target/outcome
+leads_model <- leads %>%
+  filter(!is.na(next_stage_c))
+
+# Convert placeholder text + blanks to NA (for character/factor columns)
+to_na_lowinfo <- function(x) {
+  x <- str_trim(x)
+  x <- na_if(x, "")
+  x <- if_else(
+    str_to_lower(x) %in% c("missing/blank", "unknown", "not enough info found"),
+    NA_character_,
+    x
+  )
+  x
+}
+
+rec_clean_only <- recipe(~ ., data = leads_model) %>%
+  # Keep IDs as-is (do not clean/encode them as predictors)
+  update_role(qal_id, contact_lead_id, new_role = "id") %>%
+  
+  # Keep outcome column as-is (do not clean it as a predictor)
+  update_role(next_stage_c, new_role = "outcome") %>%
+  
+  # Clean categorical predictors ONLY (excludes id + outcome roles)
+  step_mutate_at(all_nominal_predictors(), fn = to_na_lowinfo) %>%
+  
+  # Replace NA in categorical predictors with a consistent level
+  step_unknown(all_nominal_predictors(), new_level = "Low Info") %>%
+  
+  # Create flags AFTER "Low Info" exists
+  step_mutate(
+    site_lowinfo        = acct_primary_site_function == "Low Info",
+    mfg_lowinfo         = acct_manufacturing_model   == "Low Info",
+    title_lowinfo       = contact_lead_title         == "Low Info",
+    site_or_mfg_lowinfo = site_lowinfo | mfg_lowinfo
+  )
+
+# Apply recipe
+prep_clean_only <- prep(rec_clean_only, training = leads_model, retain = TRUE)
+leads_cleaned_only <- bake(prep_clean_only, new_data = NULL)
+
+# Quick checks
+dim(leads)
+dim(leads_cleaned_only)
+colSums(is.na(leads_cleaned_only))
+table(leads_cleaned_only$site_or_mfg_lowinfo, useNA = "ifany")
+
+
+```
+#### Interpretation (Clean Dataset checks)
+
+
+- **Shape:** The full dataset (`leads`) contains **16,815 rows** and **14 columns**.  
+  For modeling, we drop rows with missing outcome (`next_stage_c`), resulting in **16,332 rows**.  
+  After applying the recipe, the cleaned modeling dataset keeps **all 16,332 rows** and increases to **18 columns** because we added 4 flags:  
+  `site_lowinfo`, `mfg_lowinfo`, `title_lowinfo`, `site_or_mfg_lowinfo`.
+
+- **Missing values after recipe (`colSums(is.na())`):**
+  - `acct_primary_site_function`, `acct_manufacturing_model`, `contact_lead_title` now have **0 NA** because NAs + placeholder values were standardized and replaced with the factor level **"Low Info"**.
+  - `next_stage_c` has **0 NA** in the cleaned modeling dataset because rows with missing outcomes were removed **before** the recipe (`filter(!is.na(next_stage_c))`).
+  - `contact_lead_id` still has **2 NA** (ID column kept as-is and not imputed).
+
+- **Low-info flag (`table(site_or_mfg_lowinfo)`):**
+  - `FALSE = 7,859`: both site + manufacturing enrichment are present (not **"Low Info"**)
+  - `TRUE  = 8,473`: **at least one** of site or manufacturing is **"Low Info"**
+
+**Key takeaway:** After restricting to leads with known outcomes, low-enrichment (**"Low Info"**) values remain very common and should be treated as signal rather than noise. We standardize missing/placeholder values into a consistent **"Low Info"** category for categorical predictors and create indicator flags (e.g., `site_or_mfg_lowinfo`, `title_lowinfo`) so downstream models can learn the relationship between enrichment quality and lead progression.
