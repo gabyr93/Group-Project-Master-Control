@@ -71,7 +71,8 @@ Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the f
     -   Which technical/manufacturing roles convert best?
 4.  **Industry**
     -   Which industries show the highest conversion rates?\
-    -   Are specific NAICS groups highly predictive?
+    -   Are specific NAICS groups highly predictive?\
+    -   Can differences between conversion rates of the products be explained by industry differences?
 5.  **Account Characteristics**
     -   Do company size, revenue, or region relate to successful MX outcomes?
 6.  **Interactions**
@@ -88,7 +89,6 @@ Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the f
 
 # install.packages
 pacman::p_load(tidyverse,stringr,tidytext,quanteda,quanteda.textplots,janitor,skimr,recipes)
-####
 ```
 
 ### Load Data
@@ -552,6 +552,321 @@ For MX, “Low Info” enrichment is a meaningful signal. It is more common for:
 
 Because these differences are large (especially by industry), we should not treat missing/placeholder values as random noise. Instead, we can keep a Low Info flag as a feature and/or combine missing/placeholder categories into a consistent Low Info level for modeling.
 
+### Contact Lead Title - Additional Cleaning Steps
+
+Before we do any in depth cleaning and standardization we start by checking to see the number of unique and missing values for contact_lead_title field. This field is free form entry so has a huge variation, which in future modeling will create additional noise and difficulty. 
+```{r}
+
+leads |>
+  summarise(n = n(), n_unique = n_distinct(contact_lead_title),
+            n_missing = sum(is.na(contact_lead_title) | contact_lead_title == ""))
+```
+Pre processing steps are completed to reduce the number of unique values. This includes removing punctuation or special characters, numbers,errant spacing, lowering the case and removing stop words
+```{r}
+#remove special characters
+leads <- leads |> mutate(
+  contact_lead_title = contact_lead_title |>
+    str_to_lower() |>
+    str_replace_all("[^a-z\\s]", "") |>
+    str_replace_all("\\s+", " ") |>
+    str_trim()
+)
+
+stop_words_vec <- tidytext::stop_words$word
+
+leads <- leads |>
+  mutate(
+    contact_lead_title = map_chr(
+      contact_lead_title,
+      ~ if (is.na(.x)) {
+          NA_character_ #preserves NA values for now instead of turning to a string with value of NA
+        } else {
+          words <- str_split(.x, " ")[[1]]
+          paste(words[!words %in% stop_words_vec], collapse = " ")
+        }
+    )
+  )
+
+```
+
+After this cleaning we see the number of unique is still quite high, with an improvement of about 8% (445 values).
+```{r}
+
+leads |>
+  summarise(n = n(), n_unique = n_distinct(contact_lead_title),
+            n_missing = sum(is.na(contact_lead_title) | contact_lead_title == ""))
+```
+
+To try and further reduce the number of unique values AI was leveraged to come up with a map of common abbreviations and typos. This value map was then applied to the data, replacing the values where they occured. 
+```{r}
+title_map <- c(
+  # --- common misspellings / normalization ---
+  "cheif" = "chief",
+  "chif" = "chief",
+  "cheif executive officer" = "chief executive officer",
+  "chief exec officer" = "chief executive officer",
+  "chief exec" = "chief executive officer",
+  "chief executive" = "chief executive officer",
+  "chief operating" = "chief operating officer",
+  "chief financial" = "chief financial officer",
+  "chief technology" = "chief technology officer",
+  "chief information" = "chief information officer",
+  "chief marketing" = "chief marketing officer",
+  "chief revenue" = "chief revenue officer",
+  "chief product" = "chief product officer",
+  "chief people" = "chief people officer",
+  "chief customer" = "chief customer officer",
+  "chief legal" = "chief legal officer",
+  "chief compliance" = "chief compliance officer",
+  "chief risk" = "chief risk officer",
+  "chief security" = "chief security officer",
+  "chief data" = "chief data officer",
+  "chief analytics" = "chief analytics officer",
+
+  "manger" = "manager",
+  "mngr" = "manager",
+  "managr" = "manager",
+  "dirctor" = "director",
+  "directer" = "director",
+  "v p" = "vice president",
+  "svp" = "senior vice president",
+  "evp" = "executive vice president",
+  "avp" = "assistant vice president",
+  "vpres" = "vice president",
+  "vice pres" = "vice president",
+  "vice-president" = "vice president",
+
+  "asst" = "assistant",
+  "assitant" = "assistant",
+  "assisstant" = "assistant",
+  "assoc" = "associate",
+  "assc" = "associate",
+  "sr" = "senior",
+  "s r" = "senior",
+  "snr" = "senior",
+  "senr" = "senior",
+  "jr" = "junior",
+  "j r" = "junior",
+  "jnr" = "junior",
+  "lead" = "lead",
+  "principal" = "principal",
+  "prinicipal" = "principal",
+  "pricipal" = "principal",
+  "staff" = "staff",
+  "intern" = "intern",
+  "trainee" = "trainee",
+  "apprentice" = "apprentice",
+
+  # --- founders / ownership ---
+  "co founder" = "cofounder",
+  "co-founder" = "cofounder",
+  "cofounder" = "cofounder",
+  "founder" = "founder",
+  "owner" = "owner",
+  "proprietor" = "owner",
+  "partner" = "partner",
+  "managing partner" = "managing partner",
+
+  # --- C-suite acronyms (expand) ---
+  "ceo" = "chief executive officer",
+  "coo" = "chief operating officer",
+  "cfo" = "chief financial officer",
+  "cto" = "chief technology officer",
+  "cio" = "chief information officer",
+  "cmo" = "chief marketing officer",
+  "cro" = "chief revenue officer",
+  "cpo" = "chief product officer",
+  "cdo" = "chief data officer",              # sometimes "chief digital officer"—watch ambiguity
+  "cso" = "chief security officer",          # sometimes "chief strategy officer"—watch ambiguity
+  "chro" = "chief human resources officer",
+  "clo" = "chief legal officer",
+  "cco" = "chief compliance officer",        # sometimes "chief commercial officer"—watch ambiguity
+  "ciso" = "chief information security officer",
+  "cbo" = "chief business officer",
+  "cxo" = "chief executive officer",
+
+  # --- senior leadership / exec roles ---
+  "pres" = "president",
+  "president" = "president",
+  "vice president" = "vice president",
+  "senior vice president" = "senior vice president",
+  "executive vice president" = "executive vice president",
+  "managing director" = "managing director",
+  "md" = "managing director",                # ambiguous in healthcare
+  "gm" = "general manager",                  # ambiguous but common
+  "general mgr" = "general manager",
+
+  # --- management / leadership ---
+  "dir" = "director",
+  "director" = "director",
+  "sr director" = "senior director",
+  "senior director" = "senior director",
+  "exec director" = "executive director",
+  "executive director" = "executive director",
+
+  "mgr" = "manager",
+  "manager" = "manager",
+  "sr mgr" = "senior manager",
+  "senior manager" = "senior manager",
+  "asst manager" = "assistant manager",
+  "assistant manager" = "assistant manager",
+
+  "supervisor" = "supervisor",
+  "team lead" = "team lead",
+  "tl" = "team lead",                        # can be noisy—watch ambiguity
+
+  # --- functional common abbreviations ---
+  "hr" = "human resources",
+  "it" = "information technology",
+  "pr" = "public relations",
+  "qa" = "quality assurance",
+  "qc" = "quality control",
+  "ops" = "operations",
+  "biz dev" = "business development",
+  "bd" = "business development",             # ambiguous (can be “board” in some contexts)
+  "sales rep" = "sales representative",
+  "rep" = "representative",
+  "sr rep" = "senior representative",
+
+  # --- engineering / tech ---
+  "swe" = "software engineer",
+  "sdet" = "software development engineer in test",
+  "devops" = "devops",
+  "dev ops" = "devops",
+  "secops" = "security operations",
+  "data sci" = "data scientist",
+  "ds" = "data scientist",                   # ambiguous
+  "ml" = "machine learning",
+  "ai" = "artificial intelligence",
+
+  # --- product / project (high ambiguity) ---
+  "pm" = "project manager",                  # could be product manager
+  "pmo" = "project management office",
+  "po" = "product owner",
+  "scrum master" = "scrum master",
+
+  # --- finance / accounting ---
+  "acct" = "accountant",
+  "accounting" = "accounting",
+  "fp a" = "financial planning and analysis",
+  "fpa" = "financial planning and analysis",
+  "ap" = "accounts payable",
+  "ar" = "accounts receivable",
+  "cpa" = "certified public accountant",
+
+  # --- legal / compliance / risk ---
+  "gc" = "general counsel",
+  "counsel" = "counsel",
+  "attorney" = "attorney",
+  "compliance" = "compliance",
+  "risk" = "risk",
+  "audit" = "audit",
+
+  # --- customer / service / success ---
+  "cs" = "customer success",                 # ambiguous (computer science)
+  "csr" = "customer service representative",
+  "support" = "support",
+  "customer support" = "customer support",
+
+  # --- misc common role words ---
+  "admin" = "administrator",
+  "administrator" = "administrator",
+  "assistant" = "assistant",
+  "coordinator" = "coordinator",
+  "specialist" = "specialist",
+  "analyst" = "analyst",
+  "consultant" = "consultant",
+  "engineer" = "engineer",
+  "developer" = "developer"
+)
+
+```
+
+```{r}
+replace_word <- function(x, from, to) {
+  str_replace_all(x, regex(paste0("\\b", from, "\\b"), ignore_case = TRUE), to)
+}
+```
+
+```{r}
+leads <- leads |>
+  mutate(
+    contact_lead_title = reduce(
+      names(title_map),
+      .init = contact_lead_title,
+      .f = \(acc, k) replace_word(acc, k, title_map[[k]])
+    ) |>
+      str_replace_all("\\s+", " ") |>
+      str_trim()
+  )
+```
+
+This further reduces the unique values down by another ~100 values. The problem now becomes that their are varrying combinations of common words that can occur in different frequencies. 
+```{r}
+
+leads |>
+  summarise(n = n(), n_unique = n_distinct(contact_lead_title),
+            n_missing = sum(is.na(contact_lead_title) | contact_lead_title == ""))
+
+```
+If we look at a word cloud of the most common 50 words, their is no surprise at what shows up the most frequently. 
+```{r fig.width= 10, fig.height = 10}
+#remove whitespace
+par(mar = c(0,0,0,0), oma = c(0,0,0,0), xaxs = "i", yaxs = "i")
+
+corp <- corpus(leads, text_field = "contact_lead_title")
+toks <- tokens(corp)
+dfm_mat <- dfm(toks)
+
+textplot_wordcloud(dfm_mat, max_words = 50, max_size = 6, min_size = 0.5)
+```
+To account for the various combination of words a data frame is created of the most common occurring words. Only words that occur at least 5 times are retained. These words will be used to create a flag variable if that word occurred or not. 
+
+Below shows the top 10 occurring words, as well 10 that only occur 5 times, and for both of these  In total 361 words clear this threshold. 
+It also has the count of unique words in general that occur, of which their are 2,137.
+
+We can see from below that ~34% of titles have "quality", and ~30% have manager. 
+```{r}
+
+top_features <- topfeatures(dfm_mat,10000)
+
+top_features_df <- data.frame(
+  feature = names(top_features),
+  count = as.numeric(top_features))
+
+count(top_features_df)
+
+non_blank <- leads |>
+  summarise(n = n() - sum(is.na(contact_lead_title) | contact_lead_title == "")) |>
+  pull(n)
+  
+top_features_df <- top_features_df |> filter(count >= 5)
+top_features_df <- top_features_df |> mutate(percentage_occured_non_blank = count / non_blank)
+head(top_features_df,10)
+tail(top_features_df,10)
+
+```
+
+Additionally we can look at just bi-grams (sequences of only two words from the title field), if we look at this it does give us some more information in regards to word order. But the number of unique word combinations then goes back up greatly, so this will not be further evaluated. 
+```{r}
+toks_bigram <-tokens_ngrams(toks,n = 2)
+dfm_bigram <-dfm(toks_bigram)
+
+top_features_bi <- topfeatures(dfm_bigram,10000)
+
+top_features_df_bi <- data.frame(
+  feature = names(top_features_bi),
+  count = as.numeric(top_features_bi))
+
+count(top_features_df_bi)
+
+top_features_df_bi <- top_features_df_bi |> filter(count >= 5)
+top_features_df_bi <- top_features_df_bi |> mutate(percentage_occured_non_blank = count / non_blank)
+head(top_features_df_bi,10)
+
+```
+
+
 ### Clean Dataset
 
 In this section, we create a cleaned version of the leads dataset that we can use for EDA (and later modeling) without removing rows.
@@ -620,11 +935,38 @@ table(leads_cleaned_only$site_or_mfg_lowinfo, useNA = "ifany")
 
 ```
 
+-   Once the recipe has done the data cleaning the last step is merging the one hot encoded data back to the main cleaned data frame.
+
+```{r}
+#change from factor before creating corpus/tokens
+leads_cleaned_only <- leads_cleaned_only %>%
+  mutate(contact_lead_title = as.character(contact_lead_title))
+
+#create corpus and tokens 
+corp <- corpus(
+  leads_cleaned_only,
+  text_field = "contact_lead_title")
+
+toks <- tokens(corp)
+
+toks_onehot <- tokens_select(
+  toks,
+  pattern = top_features_df$feature)
+
+#create one hot encoded matrix
+dfm_onehot <- dfm(toks_onehot)
+dfm_onehot_bin <- dfm_weight(dfm_onehot, scheme = "boolean")
+df_encoded <- convert(dfm_onehot_bin, to = "data.frame")
+
+#join back together
+leads_cleaned_only <-cbind(leads_cleaned_only, df_encoded[,-1])
+```
+
 #### Interpretation (Clean Dataset checks)
 
 -   **Shape:** The full dataset (`leads`) contains **16,815 rows** and **14 columns**.\
     For modeling, we drop rows with missing outcome (`next_stage_c`), resulting in **16,332 rows**.\
-    After applying the recipe, the cleaned modeling dataset keeps **all 16,332 rows** and increases to **18 columns** because we added 4 flags:\
+    After applying the recipe, the cleaned modeling dataset keeps **all 16,332 rows** and increases to **3379 columns** because we added 4 flags for low information and 361 for word occurrences  :\
     `site_lowinfo`, `mfg_lowinfo`, `title_lowinfo`, `site_or_mfg_lowinfo`.
 
 -   **Missing values after recipe (`colSums(is.na())`):**
