@@ -1,7 +1,7 @@
 ---
 title: "EDA Master Control"
 author: "Josh, Joel, Corinn, Gaby"
-date: "2026-02-11"
+date: "2026-02-17"
 format:
   html:
     toc: true
@@ -91,14 +91,7 @@ Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the f
 ```{r Setup, warning=FALSE}
 
 # install.packages
-
-library(tidyverse)
-library(janitor)
-library(skimr)
-
-library(recipes)
-library(stringr)
-
+pacman::p_loa(tidyverse,stringr,tidytext,quanteda,quanteda.textplots,janitor,skimr,recipes)
 
 ```
 
