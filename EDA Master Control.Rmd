@@ -26,7 +26,8 @@ MasterControl is a SaaS provider offering two core software suites: *QX (Quality
 
 Our analytic task is to identify the **industries**, **company characteristics**, and **job titles** associated with higher MX progression rates. The target variable is **Lead Outcome**, where a lead is considered successful if it reached **SQL**, **SQO**, or **Won**.
 
-The goal of EDA is to: - Understand the structure and quality of the data\
+The goal of EDA is to:\
+- Understand the structure and quality of the data\
 - Examine relationships between lead attributes and Lead Outcome\
 - Identify which features appear predictive and should be prioritized in modeling\
 - Detect missingness, inconsistency, and outlier behavior
@@ -49,7 +50,8 @@ Success means enabling MasterControl Sales to focus on high-potential profiles t
 
 ### Project Management
 
-Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the following milestones: - Feb 1 — Business problem statement finalized\
+Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the following milestones:\
+- Feb 1 — Business problem statement finalized\
 - Feb 22 — EDA complete\
 - Mar 22 — Modeling & evaluation\
 - Apr 8 — Final presentation
@@ -63,6 +65,7 @@ Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the f
     -   Are job titles and industry columns clean or messy?\
     -   Which variables have missing values?\
     -   Is the missing data random, or does it follow a pattern?
+    -   Are there any duplicate leads?
 2.  **Target Variable**
     -   What is the overall MX success rate?\
     -   Is the target imbalanced?
@@ -115,6 +118,16 @@ summary(leads)
 
 # Check missing values 
 colSums(is.na(leads))
+
+#view data set
+#view(leads)
+
+# Check for duplicate rows by qal_id
+sum(duplicated(leads$qal_id))
+
+# Check which leads are duplicated
+leads$qal_id[duplicated(leads$qal_id)]
+
 ```
 
 ### Dataset Overview
@@ -135,7 +148,7 @@ The leads dataset contains 16,815 rows and 14 columns. Each row represents a Qua
 **QAL identifiers and lead outcomes:**
 
 -   **qal_id:** unique identifier for the QAL record.\
--   **next_stage_c:** the lead outcome or progression stage (e.g., SQL, SQO, Won, Recycled). This will be converted into a binary success indicator for modeling.
+-   **next_stage_c:** the lead outcome or progression stage (e.g., SQL, SQO, Won, Recycled). This is our target variable identifier. This will be converted into a binary success indicator for modeling.
 
 **Account segmentation and territory:**
 
@@ -152,7 +165,7 @@ The leads dataset contains 16,815 rows and 14 columns. Each row represents a Qua
 
 -   **qal_cohort_date:** date when the QAL entered the pipeline, ranging from early 2024 to early 2026.
 
-All variables except the cohort date are categorical and will be treated as factors during modeling. The dataset includes a mix of account attributes, contact information, product engagement, and progression outcomes—providing multiple angles to explore what drives higher MX success.The next step is to evaluate missingness and data quality across these fields to understand how each variable will behave in downstream analysis.
+All variables except the cohort date are categorical and will be treated as factors during modeling. The dataset includes a mix of account attributes, contact information, product engagement, and progression outcomes—providing multiple angles to explore what drives higher MX success. There are 0 duplicated leads in the dataset, meaning every qal_id is unique, therefore no leads were imputed twice and will only be counted once in analysis. The next step is to evaluate missingness and data quality across these fields to understand how each variable will behave in downstream analysis.
 
 ### Missing Data
 
@@ -554,14 +567,24 @@ Because these differences are large (especially by industry), we should not trea
 
 ### Contact Lead Title - Additional Cleaning Steps
 
-Before we do any in depth cleaning and standardization we start by checking to see the number of unique and missing values for contact_lead_title field. This field is free form entry so has a huge variation, which in future modeling will create additional noise and difficulty. 
+Before we do any in depth cleaning and standardization, we start by checking to see the number of unique and missing values for contact_lead_title field. 
+
+This field is free form entry, therefore this field has a huge variation in job titles. In future modeling, this will create additional noise and difficulty in interpretation. 
+
 ```{r}
 
 leads |>
   summarise(n = n(), n_unique = n_distinct(contact_lead_title),
             n_missing = sum(is.na(contact_lead_title) | contact_lead_title == ""))
 ```
-Pre processing steps are completed to reduce the number of unique values. This includes removing punctuation or special characters, numbers,errant spacing, lowering the case and removing stop words
+**Unique Contact Lead Titles**
+
+There are 5,791 unique contact lead titles within the dataset. The goal is to reduce the number of unique values to make grouping/clustering simpler for further analysis.
+
+#### Pre-Processing Cleaning
+
+Pre-processing steps are completed to reduce the number of unique values. This includes removing punctuation or special characters, numbers, errant spacing, converting to lower case and removing stop words.
+
 ```{r}
 #remove special characters
 leads <- leads |> mutate(
@@ -589,7 +612,8 @@ leads <- leads |>
 
 ```
 
-After this cleaning we see the number of unique is still quite high, with an improvement of about 8% (445 values).
+After this cleaning, we see the number of unique is still quite high, with an improvement of about 8% (445 values).
+
 ```{r}
 
 leads |>
@@ -597,7 +621,13 @@ leads |>
             n_missing = sum(is.na(contact_lead_title) | contact_lead_title == ""))
 ```
 
-To try and further reduce the number of unique values AI was leveraged to come up with a map of common abbreviations and typos. This value map was then applied to the data, replacing the values where they occured. 
+**Pre-Processing Cleaning Output**
+The number of unique values decreased from 5,791 to 5,346. There needs futher cleaning and or title grouping to lower this value.
+
+#### Common Contact Title Groupings
+
+To try and further reduce the number of unique values, AI was leveraged to come up with a map of common abbreviations and typing errors. This value map was then applied to the data, replacing the values where they occurred. 
+
 ```{r}
 title_map <- c(
   # --- common misspellings / normalization ---
@@ -801,7 +831,7 @@ leads <- leads |>
   )
 ```
 
-This further reduces the unique values down by another ~100 values. The problem now becomes that their are varrying combinations of common words that can occur in different frequencies. 
+
 ```{r}
 
 leads |>
@@ -809,7 +839,14 @@ leads |>
             n_missing = sum(is.na(contact_lead_title) | contact_lead_title == ""))
 
 ```
-If we look at a word cloud of the most common 50 words, their is no surprise at what shows up the most frequently. 
+**Contact Lead Title Grouping Output**
+
+This further reduces the unique values down by another ~100 values. The problem at this step is that there are varying combinations of common words that can occur in different frequencies. 
+
+#### Contact Lead Title Word Cloud
+
+If we look at a word cloud of the most common 50 words, there is no surprise at what shows up the most frequently. 
+
 ```{r fig.width= 10, fig.height = 10}
 #remove whitespace
 par(mar = c(0,0,0,0), oma = c(0,0,0,0), xaxs = "i", yaxs = "i")
@@ -820,12 +857,13 @@ dfm_mat <- dfm(toks)
 
 textplot_wordcloud(dfm_mat, max_words = 50, max_size = 6, min_size = 0.5)
 ```
-To account for the various combination of words a data frame is created of the most common occurring words. Only words that occur at least 5 times are retained. These words will be used to create a flag variable if that word occurred or not. 
+**Word Cloud Output**
+Manager, quality, director, assurance, and senior are the most common words implicated by the word cloud.
 
-Below shows the top 10 occurring words, as well 10 that only occur 5 times, and for both of these  In total 361 words clear this threshold. 
-It also has the count of unique words in general that occur, of which their are 2,137.
+#### Most Common Word Data Frame
 
-We can see from below that ~34% of titles have "quality", and ~30% have manager. 
+To account for the various combination of words, a data frame is created of the most common occurring words. Only words that occur at least 5 times are retained. These words will be used to create a flag variable if that word occurred or not. 
+
 ```{r}
 
 top_features <- topfeatures(dfm_mat,10000)
@@ -847,7 +885,17 @@ tail(top_features_df,10)
 
 ```
 
-Additionally we can look at just bi-grams (sequences of only two words from the title field), if we look at this it does give us some more information in regards to word order. But the number of unique word combinations then goes back up greatly, so this will not be further evaluated. 
+**Common Words Data Frame Output**
+
+Above shows the top 10 occurring words, as well as 10 that only occur 5 times, and for both of these  In total 361 words clear this threshold. 
+It also has the count of unique words in general that occur, of which their are 2,137.
+
+We can see from below that ~34% of titles have "quality", and ~30% have manager. 
+
+#### Common Words Bi-Grams
+
+Additionally we can look at just bi-grams (sequences of only two words from the title field), if we look at this it does give us some more information in regards to word order. However, the number of unique word combinations then goes back up greatly, so this will not be further evaluated. 
+
 ```{r}
 toks_bigram <-tokens_ngrams(toks,n = 2)
 dfm_bigram <-dfm(toks_bigram)
@@ -932,7 +980,6 @@ dim(leads_cleaned_only)
 colSums(is.na(leads_cleaned_only))
 table(leads_cleaned_only$site_or_mfg_lowinfo, useNA = "ifany")
 
-
 ```
 
 -   Once the recipe has done the data cleaning the last step is merging the one hot encoded data back to the main cleaned data frame.
@@ -960,15 +1007,43 @@ df_encoded <- convert(dfm_onehot_bin, to = "data.frame")
 
 #join back together
 leads_cleaned_only <-cbind(leads_cleaned_only, df_encoded[,-1])
+
+#check duplicated columns for target variable binary conversion
+colnames(leads_cleaned_only)[duplicated(colnames(leads_cleaned_only))]
+
+dup_cols <- colnames(leads_cleaned_only)[colnames(leads_cleaned_only) %in% colnames(leads_cleaned_only)[duplicated(colnames(leads_cleaned_only))]]
+dup_cols
+
+leads_cleaned_only[, dup_cols]
+
+#drop solution.1
+leads_cleaned_final <- leads_cleaned_only[, colnames(leads_cleaned_only) != "solution.1"]
+leads_cleaned_final
+
+#check for duplicates again
+colnames(leads_cleaned_final)[duplicated(colnames(leads_cleaned_final))]
+
+#now convert target to binary
+leads_cleaned_final <- leads_cleaned_final %>%
+  mutate(
+    next_stage_target = factor(
+      if_else(next_stage_c %in% c("SQL", "SQO", "Won"), 1, 0)
+    )
+  )
+
+#view dataframe
+leads_cleaned_final
 ```
+
 
 #### Interpretation (Clean Dataset checks)
 
 -   **Shape:** The full dataset (`leads`) contains **16,815 rows** and **14 columns**.\
     For modeling, we drop rows with missing outcome (`next_stage_c`), resulting in **16,332 rows**.\
     After applying the recipe, the cleaned modeling dataset keeps **all 16,332 rows** and increases to **3379 columns** because we added 4 flags for low information and 361 for word occurrences  :\
-    `site_lowinfo`, `mfg_lowinfo`, `title_lowinfo`, `site_or_mfg_lowinfo`.
-
+    `site_lowinfo`, `mfg_lowinfo`, `title_lowinfo`, `site_or_mfg_lowinfo`.\
+    When converting the target variable `next_stage_c` to binary (1,0), the error of duplicate column names was returned. We checked which columns we duplicated, 'solution' was the duplicated column, and then removed it. Then we continued with turning the target variable into binary and it worked successfully.
+    
 -   **Missing values after recipe (`colSums(is.na())`):**
 
     -   `acct_primary_site_function`, `acct_manufacturing_model`, `contact_lead_title` now have **0 NA** because NAs + placeholder values were standardized and replaced with the factor level **"Low Info"**.
