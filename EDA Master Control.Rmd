@@ -91,7 +91,8 @@ Team members include **Corinn, Josh, Joel, and Gaby**, meeting weekly with the f
 ```{r Setup, warning=FALSE}
 
 # install.packages
-pacman::p_load(tidyverse,stringr,tidytext,quanteda,quanteda.textplots,janitor,skimr,recipes)
+pacman::p_load(tidyverse,stringr,tidytext,quanteda,quanteda.textplots,janitor,skimr,recipes,
+               cluster,factoextra,FactoMineR,proxy,dendextend,pheatmap,Rtsne,fpc)
 ```
 
 ### Load Data
@@ -1056,3 +1057,864 @@ leads_cleaned_final
     -   `TRUE  = 8,473`: **at least one** of site or manufacturing is **"Low Info"**
 
 **Key takeaway:** After restricting to leads with known outcomes, low-enrichment (**"Low Info"**) values remain very common and should be treated as signal rather than noise. We standardize missing/placeholder values into a consistent **"Low Info"** category for categorical predictors and create indicator flags (e.g., `site_or_mfg_lowinfo`, `title_lowinfo`) so downstream models can learn the relationship between enrichment quality and lead progression.
+
+# Clustering EDA
+
+Clustering reveals multi-dimensional lead segments that simple cross-tabulations cannot surface. Where a bar chart shows one variable at a time (e.g., industry vs. conversion), clustering operates across all dimensions simultaneously — discovering combinations like "Small tier + EMEA + Medical Device + SEO channel" that form coherent, high-converting archetypes invisible in univariate analysis.
+
+We perform four clustering analyses, each targeting a different question:
+
+1. **Account Profile Clustering** — What natural account archetypes exist, and how do they convert?
+2. **Title-Based Role Clustering** — Can we collapse 361 title word indicators into interpretable role families?
+3. **Mx-Specific Lead Profile Clustering** — What distinct Mx lead profiles exist, ranked by conversion?
+4. **Success Profile (ICP) Discovery** — What do winning Mx leads look like?
+
+### Shared Setup: Create Success Variable and Site Function Groupings
+
+```{r clustering-setup}
+# Set up cache directory for expensive clustering computations
+cache_dir <- "EDA-Master-Control_cache/clustering"
+dir.create(cache_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Fix duplicate column names from cbind() of one-hot encoded title words
+# (cbind can produce duplicates if any title word matches an existing column)
+dup_cols <- duplicated(names(leads_cleaned_only))
+if (any(dup_cols)) {
+  cat("Removing", sum(dup_cols), "duplicate columns\n")
+  leads_cleaned_only <- leads_cleaned_only[, !dup_cols]
+}
+
+# Create binary success variable on the cleaned dataset
+leads_clustered <- leads_cleaned_only %>%
+  mutate(
+    success = if_else(next_stage_c %in% c("SQL", "SQO", "Won"), 1, 0),
+    # Group 78+ site function levels into 5 categories
+    # (based on case_description.txt suggested groupings)
+    site_function_group = case_when(
+      acct_primary_site_function %in% c(
+        "Oral solid dosage (OSD)", "Sterile injectables",
+        "Small-molecule API", "Biologic API",
+        "Cell therapies (CAR-T, NK)", "Generics manufacturing",
+        "Drug discovery & development", "Nutraceutical manufacturing"
+      ) ~ "Active Pharma Mfg",
+      acct_primary_site_function %in% c(
+        "Implantable devices", "In-vitro diagnostic (IVD) kits",
+        "Diagnostic Equipment", "Surgical instruments",
+        "Single-use disposables"
+      ) ~ "Med Device Mfg",
+      acct_primary_site_function %in% c(
+        "Non-manufacturing organization", "Low Info"
+      ) ~ "Non-Mfg / Low Info",
+      acct_primary_site_function %in% c(
+        "Food and beverage", "Cosmetics manufacturing",
+        "Specialty Chemical Manufacturing", "Secondary packaging",
+        "Lab Instruments"
+      ) ~ "Other Mfg",
+      TRUE ~ "Other Mfg"
+    ),
+    site_function_group = factor(site_function_group)
+  )
+```
+
+## Analysis 1: Account Profile Clustering (Gower + PAM)
+
+We cluster all leads on account-level categorical features to discover natural account archetypes. PAM (Partitioning Around Medoids) with Gower distance is ideal for purely categorical data — medoids are real data points, making clusters directly interpretable.
+
+### Prepare Features
+
+```{r acct-cluster-prep}
+acct_df <- leads_clustered %>%
+  select(acct_target_industry, acct_manufacturing_model,
+         site_function_group, acct_tier_rollup,
+         acct_territory_rollup, site_or_mfg_lowinfo) %>%
+  mutate(across(everything(), as.factor))
+
+dim(acct_df)
+```
+
+### Compute Gower Distance and Optimal k
+
+```{r acct-gower-silhouette}
+set.seed(42)
+
+cache_file <- file.path(cache_dir, "gower_acct.rds")
+if (file.exists(cache_file)) {
+  cached <- readRDS(cache_file)
+  gower_dist <- cached$gower_dist
+  sil_widths <- cached$sil_widths
+  cat("Loaded gower_dist and sil_widths from cache\n")
+} else {
+  # Gower distance handles mixed/categorical data natively
+  gower_dist <- daisy(acct_df, metric = "gower")
+
+  # Search for optimal k via silhouette width
+  sil_widths <- sapply(2:10, function(k) {
+    pam_fit <- pam(gower_dist, k = k, diss = TRUE)
+    pam_fit$silinfo$avg.width
+  })
+
+  saveRDS(list(gower_dist = gower_dist, sil_widths = sil_widths), cache_file)
+  cat("Computed and cached gower_dist and sil_widths\n")
+}
+
+sil_df <- data.frame(k = 2:10, avg_silhouette = sil_widths)
+
+ggplot(sil_df, aes(x = k, y = avg_silhouette)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_point(data = sil_df %>% filter(avg_silhouette == max(avg_silhouette)),
+             color = "red", size = 4) +
+  labs(title = "Account Clustering: Optimal k by Silhouette Width",
+       x = "Number of Clusters (k)", y = "Average Silhouette Width") +
+  theme_minimal()
+
+best_k_acct <- sil_df$k[which.max(sil_df$avg_silhouette)]
+cat("Optimal k:", best_k_acct, "with avg silhouette:", max(sil_df$avg_silhouette))
+```
+
+### Fit Final PAM Model
+
+```{r acct-pam-fit}
+cache_file <- file.path(cache_dir, "pam_acct.rds")
+if (file.exists(cache_file)) {
+  pam_acct <- readRDS(cache_file)
+  cat("Loaded pam_acct from cache\n")
+} else {
+  pam_acct <- pam(gower_dist, k = best_k_acct, diss = TRUE)
+  saveRDS(pam_acct, cache_file)
+  cat("Computed and cached pam_acct\n")
+}
+
+# Append cluster labels
+leads_clustered$account_cluster <- factor(pam_acct$clustering)
+
+# Silhouette plot
+fviz_silhouette(pam_acct) +
+  labs(title = "Account Cluster Silhouette Plot") +
+  theme_minimal()
+```
+
+### MCA Biplot with Cluster Overlay
+
+```{r acct-mca-biplot, fig.width=10, fig.height=8}
+# MCA is the categorical analogue of PCA
+mca_acct <- MCA(acct_df, graph = FALSE)
+
+# Extract individual coordinates and color by cluster
+mca_ind <- data.frame(mca_acct$ind$coord[, 1:2])
+mca_ind$cluster <- leads_clustered$account_cluster
+
+ggplot(mca_ind, aes(x = Dim.1, y = Dim.2, color = cluster)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  stat_ellipse(level = 0.7, linewidth = 1) +
+  labs(title = "Account Clusters in MCA Space",
+       x = paste0("Dim 1 (", round(mca_acct$eig[1, 2], 1), "%)"),
+       y = paste0("Dim 2 (", round(mca_acct$eig[2, 2], 1), "%)"),
+       color = "Cluster") +
+  theme_minimal()
+```
+
+### Cluster Composition Heatmap
+
+```{r acct-composition-heatmap, fig.width=12, fig.height=8}
+# Calculate proportion of each category level within each cluster
+comp_long <- leads_clustered %>%
+  select(account_cluster, acct_target_industry, acct_manufacturing_model,
+         site_function_group, acct_tier_rollup, acct_territory_rollup) %>%
+  pivot_longer(-account_cluster, names_to = "variable", values_to = "level") %>%
+  count(account_cluster, variable, level) %>%
+  group_by(account_cluster, variable) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Show top levels per variable for readability
+top_levels <- comp_long %>%
+  group_by(variable, level) %>%
+  summarise(total_n = sum(n), .groups = "drop") %>%
+  group_by(variable) %>%
+  slice_max(total_n, n = 6) %>%
+  pull(level)
+
+comp_filtered <- comp_long %>%
+  filter(level %in% top_levels) %>%
+  mutate(label = paste0(variable, ": ", level))
+
+ggplot(comp_filtered, aes(x = account_cluster, y = label, fill = prop)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = scales::percent(prop, accuracy = 1)), size = 2.5) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(title = "Account Cluster Composition",
+       x = "Cluster", y = "", fill = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 8))
+```
+
+### Conversion Rate by Account Cluster
+
+```{r acct-conversion, fig.width=10, fig.height=6}
+acct_conv <- leads_clustered %>%
+  group_by(account_cluster, solution_rollup) %>%
+  summarise(
+    n = n(),
+    conversion = mean(success) * 100,
+    .groups = "drop"
+  )
+
+ggplot(acct_conv, aes(x = account_cluster, y = conversion, fill = solution_rollup)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste0(round(conversion, 1), "%\nn=", n)),
+            position = position_dodge(width = 0.9), vjust = -0.3, size = 3) +
+  geom_hline(yintercept = 12.7, linetype = "dashed", color = "orange", linewidth = 0.8) +
+  geom_hline(yintercept = 19.7, linetype = "dashed", color = "blue", linewidth = 0.8) +
+  annotate("text", x = 0.5, y = 13.5, label = "Mx avg (12.7%)", color = "orange", hjust = 0, size = 3) +
+  annotate("text", x = 0.5, y = 20.5, label = "Qx avg (19.7%)", color = "blue", hjust = 0, size = 3) +
+  labs(title = "Lead Conversion Rate by Account Cluster",
+       subtitle = "Dashed lines show overall Mx and Qx averages",
+       x = "Account Cluster", y = "Conversion Rate (%)", fill = "Product") +
+  theme_minimal()
+```
+
+### Cluster Size Summary
+
+```{r acct-cluster-size}
+cluster_summary <- leads_clustered %>%
+  group_by(account_cluster) %>%
+  summarise(
+    n = n(),
+    pct_of_total = round(100 * n() / nrow(leads_clustered), 1),
+    mx_conversion = round(mean(success[solution_rollup == "Mx"]) * 100, 2),
+    qx_conversion = round(mean(success[solution_rollup == "Qx"]) * 100, 2),
+    pct_lowinfo = round(mean(site_or_mfg_lowinfo == TRUE) * 100, 1),
+    .groups = "drop"
+  )
+
+cluster_summary
+```
+
+### Medoid Profiles (Cluster Archetypes)
+
+```{r acct-medoids}
+# The medoid is the most representative lead in each cluster
+medoid_rows <- pam_acct$id.med
+medoid_profiles <- leads_clustered[medoid_rows, ] %>%
+  select(account_cluster, acct_target_industry, acct_manufacturing_model,
+         site_function_group, acct_tier_rollup, acct_territory_rollup,
+         site_or_mfg_lowinfo)
+
+medoid_profiles
+```
+
+#### Business Translation
+
+Each cluster represents a distinct account archetype. Compare the conversion rates above to the Mx baseline of 12.7%. Clusters with above-average conversion contain the account profiles MasterControl should prioritize for Mx targeting. Clusters with very low conversion (especially those dominated by "Low Info" or "Non-Mfg") represent targeting waste.
+
+---
+
+## Analysis 2: Title-Based Role Clustering (Jaccard + Hierarchical)
+
+We cluster the 361 binary title word indicators to discover natural "role families" among contacts. Jaccard distance is ideal for binary presence/absence data because it ignores shared zeros — two titles are not considered similar simply because they both lack the word "pharmacist."
+
+### Prepare Title Data
+
+```{r title-cluster-prep}
+# Identify title word indicator columns (binary flags from one-hot encoding)
+title_word_cols <- top_features_df$feature
+
+# Filter to rows with actual titles (not Low Info)
+title_df <- leads_clustered %>%
+  filter(title_lowinfo == FALSE) %>%
+  select(all_of(title_word_cols))
+
+# Convert to numeric matrix for distance computation
+title_mat <- as.matrix(title_df)
+storage.mode(title_mat) <- "integer"
+
+cat("Title matrix dimensions:", dim(title_mat), "\n")
+cat("Rows with titles:", nrow(title_mat))
+```
+
+### Compute Jaccard Distance and Hierarchical Clustering
+
+```{r title-jaccard-hclust}
+set.seed(42)
+
+cache_file <- file.path(cache_dir, "jacc_title.rds")
+if (file.exists(cache_file)) {
+  cached <- readRDS(cache_file)
+  jacc_dist <- cached$jacc_dist
+  hc_title <- cached$hc_title
+  sample_idx <- cached$sample_idx
+  title_mat_sample <- title_mat[sample_idx, ]
+  cat("Loaded jacc_dist, hc_title, and sample_idx from cache\n")
+} else {
+  # If dataset is large, sample for distance computation
+  if (nrow(title_mat) > 5000) {
+    sample_idx <- sample(nrow(title_mat), 5000)
+    title_mat_sample <- title_mat[sample_idx, ]
+    cat("Sampled", nrow(title_mat_sample), "rows for distance computation\n")
+  } else {
+    title_mat_sample <- title_mat
+    sample_idx <- seq_len(nrow(title_mat))
+  }
+
+  # Jaccard distance for binary presence/absence data
+  jacc_dist <- proxy::dist(title_mat_sample, method = "Jaccard")
+
+  # Ward's hierarchical clustering
+  hc_title <- hclust(jacc_dist, method = "ward.D2")
+
+  saveRDS(list(jacc_dist = jacc_dist, hc_title = hc_title, sample_idx = sample_idx), cache_file)
+  cat("Computed and cached jacc_dist, hc_title, and sample_idx\n")
+}
+```
+
+### Silhouette Analysis for Optimal k
+
+```{r title-silhouette}
+sil_title <- sapply(3:12, function(k) {
+  cl <- cutree(hc_title, k = k)
+  mean(silhouette(cl, jacc_dist)[, "sil_width"])
+})
+
+sil_title_df <- data.frame(k = 3:12, avg_silhouette = sil_title)
+
+ggplot(sil_title_df, aes(x = k, y = avg_silhouette)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_point(data = sil_title_df %>% filter(avg_silhouette == max(avg_silhouette)),
+             color = "red", size = 4) +
+  labs(title = "Title Role Clustering: Optimal k by Silhouette Width",
+       x = "Number of Clusters (k)", y = "Average Silhouette Width") +
+  theme_minimal()
+
+best_k_title <- sil_title_df$k[which.max(sil_title_df$avg_silhouette)]
+cat("Optimal k:", best_k_title, "with avg silhouette:", max(sil_title_df$avg_silhouette))
+```
+
+### Dendrogram
+
+```{r title-dendrogram, fig.width=12, fig.height=6}
+dend <- as.dendrogram(hc_title)
+dend <- color_branches(dend, k = best_k_title)
+
+plot(dend, leaflab = "none",
+     main = paste0("Title Role Family Dendrogram (k=", best_k_title, ")"))
+```
+
+### Cluster-Word Heatmap (What Each Role Family Means)
+
+```{r title-heatmap, fig.width=12, fig.height=8}
+title_clusters_sample <- cutree(hc_title, k = best_k_title)
+
+# Profile each cluster by word proportion
+cluster_word_props <- title_mat_sample %>%
+  as.data.frame() %>%
+  mutate(cluster = factor(title_clusters_sample)) %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean), .groups = "drop")
+
+# Select top 30 most discriminating words (highest variance across clusters)
+word_variance <- apply(cluster_word_props[, -1], 2, var)
+top_30_words <- names(sort(word_variance, decreasing = TRUE))[1:30]
+
+heatmap_data <- cluster_word_props %>%
+  select(cluster, all_of(top_30_words)) %>%
+  tibble::column_to_rownames("cluster") %>%
+  as.matrix()
+
+pheatmap(t(heatmap_data),
+         main = "Role Family Profiles: Top 30 Discriminating Title Words",
+         cluster_rows = TRUE, cluster_cols = FALSE,
+         display_numbers = TRUE, number_format = "%.2f",
+         fontsize_number = 7, fontsize_row = 9,
+         color = colorRampPalette(c("white", "steelblue"))(50))
+```
+
+### Assign Clusters to Full Dataset
+
+```{r title-assign-all}
+# Assign cluster labels to sampled rows, then assign remaining rows
+# to nearest cluster centroid via Jaccard distance to cluster means
+
+# Replace any NAs in title_mat with 0 (missing indicator = "not present")
+title_mat[is.na(title_mat)] <- 0L
+
+# Compute cluster centroids (mean binary vectors)
+centroids <- title_mat_sample %>%
+  as.data.frame() %>%
+  mutate(cluster = title_clusters_sample) %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean), .groups = "drop")
+
+centroid_mat <- as.matrix(centroids[, -1])
+
+# Assign all title rows to nearest centroid
+assign_cluster <- function(row, centroids) {
+  # Jaccard-like distance: 1 - (intersection / union) for binary vs continuous
+  dists <- apply(centroids, 1, function(c) {
+    intersection <- sum(pmin(row, c, na.rm = TRUE))
+    union_val <- sum(pmax(row, c, na.rm = TRUE))
+    if (is.na(union_val) || union_val == 0) return(1)
+    1 - intersection / union_val
+  })
+  which.min(dists)
+}
+
+all_title_clusters <- apply(title_mat, 1, assign_cluster, centroids = centroid_mat)
+
+# Add to main dataset
+leads_clustered$title_cluster <- NA_integer_
+title_rows <- which(leads_clustered$title_lowinfo == FALSE)
+leads_clustered$title_cluster[title_rows] <- all_title_clusters
+leads_clustered$title_cluster <- factor(leads_clustered$title_cluster)
+
+table(leads_clustered$title_cluster, useNA = "ifany")
+```
+
+### Conversion Rate by Role Cluster
+
+```{r title-conversion, fig.width=10, fig.height=6}
+title_conv <- leads_clustered %>%
+  filter(!is.na(title_cluster)) %>%
+  group_by(title_cluster, solution_rollup) %>%
+  summarise(
+    n = n(),
+    conversion = mean(success) * 100,
+    .groups = "drop"
+  )
+
+ggplot(title_conv, aes(x = title_cluster, y = conversion, fill = solution_rollup)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste0(round(conversion, 1), "%\nn=", n)),
+            position = position_dodge(width = 0.9), vjust = -0.3, size = 3) +
+  geom_hline(yintercept = 12.7, linetype = "dashed", color = "orange") +
+  geom_hline(yintercept = 19.7, linetype = "dashed", color = "blue") +
+  labs(title = "Lead Conversion by Title Role Family",
+       subtitle = "Dashed lines: Mx avg (orange) and Qx avg (blue)",
+       x = "Role Cluster", y = "Conversion Rate (%)", fill = "Product") +
+  theme_minimal()
+```
+
+### t-SNE Visualization
+
+```{r title-tsne, fig.width=10, fig.height=8, cache=TRUE}
+set.seed(42)
+
+# t-SNE on the sampled title data
+tsne_result <- Rtsne(jacc_dist, is_distance = TRUE, perplexity = 30, dims = 2)
+
+tsne_df <- data.frame(
+  x = tsne_result$Y[, 1],
+  y = tsne_result$Y[, 2],
+  cluster = factor(title_clusters_sample)
+)
+
+ggplot(tsne_df, aes(x = x, y = y, color = cluster)) +
+  geom_point(alpha = 0.4, size = 0.8) +
+  labs(title = "Title Role Families in t-SNE Space",
+       x = "t-SNE 1", y = "t-SNE 2", color = "Role Cluster") +
+  theme_minimal()
+```
+
+### Role Family Summary Table
+
+```{r title-role-summary}
+# For each cluster, show top 5 defining words and conversion rates
+role_summary <- leads_clustered %>%
+  filter(!is.na(title_cluster)) %>%
+  group_by(title_cluster) %>%
+  summarise(
+    n = n(),
+    mx_conversion = round(mean(success[solution_rollup == "Mx"]) * 100, 2),
+    qx_conversion = round(mean(success[solution_rollup == "Qx"]) * 100, 2),
+    .groups = "drop"
+  )
+
+# Add top words from the heatmap data
+top_words_per_cluster <- cluster_word_props %>%
+  pivot_longer(-cluster, names_to = "word", values_to = "prop") %>%
+  group_by(cluster) %>%
+  slice_max(prop, n = 5) %>%
+  summarise(top_words = paste(word, collapse = ", "), .groups = "drop")
+
+role_summary <- role_summary %>%
+  left_join(top_words_per_cluster, by = c("title_cluster" = "cluster"))
+
+role_summary
+```
+
+#### Business Translation
+
+Each role cluster represents a distinct job function family. The conversion rates above reveal which role families are most receptive to Mx vs. Qx. The sales team can use these role families as targeting criteria — for example, if "Operations/Manufacturing Directors" convert at 20%+ for Mx while "Quality Specialists" convert at only 8%, that directly informs outbound prospecting priorities.
+
+---
+
+## Analysis 3: Mx-Specific Lead Profile Clustering (MCA + k-means)
+
+This is the most directly actionable analysis. We focus exclusively on Mx leads and cluster them using all available features to find distinct lead profiles, then rank profiles by conversion rate.
+
+MCA (Multiple Correspondence Analysis) is used for dimensionality reduction — the categorical equivalent of PCA — followed by k-means on the resulting continuous dimensions.
+
+### Prepare Mx Data
+
+```{r mx-cluster-prep}
+mx_leads <- leads_clustered %>%
+  filter(solution_rollup == "Mx") %>%
+  mutate(
+    # Group manufacturing model to top 8 + Other + Low Info
+    mfg_model_group = fct_lump_n(acct_manufacturing_model, n = 8,
+                                  other_level = "Other"),
+    # Group priority into 4 levels
+    priority_group = case_when(
+      str_detect(priority, "P1 - (Video|Live|Webinar) Demo|P1 - Website Pricing") ~ "P1 High-Intent",
+      str_detect(priority, "P1 - Contact Us|P1 - MQL|P1 - Discount") ~ "P1 Standard",
+      priority == "Priority 1" ~ "P1 Standard",
+      priority == "Priority 2" ~ "P2",
+      TRUE ~ "Low/No Priority"
+    ),
+    priority_group = factor(priority_group)
+  )
+
+# Select clustering features
+mx_cluster_df <- mx_leads %>%
+  select(acct_target_industry, mfg_model_group, site_function_group,
+         acct_tier_rollup, acct_territory_rollup,
+         last_tactic_campaign_channel, priority_group,
+         site_or_mfg_lowinfo, title_lowinfo) %>%
+  mutate(across(everything(), as.factor))
+
+cat("Mx leads for clustering:", nrow(mx_cluster_df), "\n")
+cat("Features:", ncol(mx_cluster_df))
+```
+
+### MCA Dimensionality Reduction
+
+```{r mx-mca, fig.width=10, fig.height=8}
+mca_mx <- MCA(mx_cluster_df, graph = FALSE)
+
+# Screeplot: how many dimensions to retain?
+fviz_screeplot(mca_mx, addlabels = TRUE, ncp = 15) +
+  labs(title = "MCA Screeplot: Mx Leads") +
+  theme_minimal()
+
+# Cumulative inertia
+cum_inertia <- cumsum(mca_mx$eig[, 2])
+# If 70% inertia is never reached, use all available dimensions
+if (any(cum_inertia >= 70)) {
+  n_dim <- min(which(cum_inertia >= 70))
+} else {
+  n_dim <- length(cum_inertia)
+}
+cat("Dimensions to retain (>=70% inertia):", n_dim, "\n")
+cat("Cumulative inertia at", n_dim, "dims:", round(cum_inertia[min(n_dim, length(cum_inertia))], 1), "%")
+```
+
+### MCA Variable Biplot
+
+```{r mx-mca-biplot, fig.width=12, fig.height=10}
+fviz_mca_var(mca_mx, repel = TRUE, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")) +
+  labs(title = "MCA Variable Map: Which Category Levels Co-Occur for Mx Leads") +
+  theme_minimal()
+```
+
+### Optimal k for k-means on MCA Scores
+
+```{r mx-kmeans-optimal, fig.width=8, fig.height=5}
+# Cap at available dimensions (MCA may produce fewer than n_dim)
+n_avail <- ncol(mca_mx$ind$coord)
+mca_coords <- mca_mx$ind$coord[, 1:min(n_dim, n_avail, 15)]
+
+# Silhouette method
+fviz_nbclust(mca_coords, kmeans, method = "silhouette", k.max = 8) +
+  labs(title = "Mx Lead Clustering: Optimal k (Silhouette)") +
+  theme_minimal()
+```
+
+### Fit k-means
+
+```{r mx-kmeans-fit}
+set.seed(42)
+
+cache_file <- file.path(cache_dir, "kmeans_mx.rds")
+if (file.exists(cache_file)) {
+  cached <- readRDS(cache_file)
+  sil_km <- cached$sil_km
+  km_mx <- cached$km_mx
+  cat("Loaded km_mx from cache\n")
+} else {
+  # Use silhouette-optimal k
+  sil_km <- sapply(2:8, function(k) {
+    km <- kmeans(mca_coords, centers = k, nstart = 25)
+    mean(silhouette(km$cluster, dist(mca_coords))[, "sil_width"])
+  })
+
+  best_k_mx <- (2:8)[which.max(sil_km)]
+  km_mx <- kmeans(mca_coords, centers = best_k_mx, nstart = 25)
+
+  saveRDS(list(sil_km = sil_km, km_mx = km_mx), cache_file)
+  cat("Computed and cached km_mx\n")
+}
+
+best_k_mx <- (2:8)[which.max(sil_km)]
+cat("Optimal k for Mx clustering:", best_k_mx, "\n")
+
+mx_leads$mx_cluster <- factor(km_mx$cluster)
+```
+
+### Mx Cluster Individuals in MCA Space
+
+```{r mx-cluster-plot, fig.width=10, fig.height=8}
+mca_plot_df <- data.frame(
+  Dim1 = mca_coords[, 1],
+  Dim2 = mca_coords[, 2],
+  cluster = mx_leads$mx_cluster
+)
+
+ggplot(mca_plot_df, aes(x = Dim1, y = Dim2, color = cluster)) +
+  geom_point(alpha = 0.4, size = 1) +
+  stat_ellipse(level = 0.7, linewidth = 1) +
+  labs(title = "Mx Lead Clusters in MCA Space",
+       x = paste0("Dim 1 (", round(mca_mx$eig[1, 2], 1), "%)"),
+       y = paste0("Dim 2 (", round(mca_mx$eig[2, 2], 1), "%)"),
+       color = "Mx Cluster") +
+  theme_minimal()
+```
+
+### Mx Conversion Rate by Cluster
+
+```{r mx-conversion, fig.width=10, fig.height=6}
+mx_conv <- mx_leads %>%
+  group_by(mx_cluster) %>%
+  summarise(
+    n = n(),
+    pct_of_mx = round(100 * n() / nrow(mx_leads), 1),
+    conversion = round(mean(success) * 100, 2),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(conversion))
+
+ggplot(mx_conv, aes(x = reorder(mx_cluster, -conversion), y = conversion,
+                     fill = conversion > 12.7)) +
+  geom_col() +
+  geom_text(aes(label = paste0(conversion, "%\nn=", n, " (", pct_of_mx, "%)")),
+            vjust = -0.3, size = 3.5) +
+  geom_hline(yintercept = 12.7, linetype = "dashed", color = "red", linewidth = 0.8) +
+  annotate("text", x = 0.5, y = 13.5, label = "Mx avg: 12.7%", color = "red",
+           hjust = 0, size = 3) +
+  scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "grey60"),
+                    guide = "none") +
+  labs(title = "Mx Lead Conversion Rate by Cluster",
+       subtitle = "Blue = above Mx average, Grey = below",
+       x = "Mx Cluster (ordered by conversion)", y = "Conversion Rate (%)") +
+  theme_minimal()
+
+mx_conv
+```
+
+### Mx Cluster Profile Summary
+
+```{r mx-cluster-profiles}
+# For each cluster, show the dominant category in each feature
+mx_profiles <- mx_leads %>%
+  group_by(mx_cluster) %>%
+  summarise(
+    n = n(),
+    conversion = round(mean(success) * 100, 2),
+    top_industry = names(sort(table(acct_target_industry), decreasing = TRUE))[1],
+    top_mfg_model = names(sort(table(mfg_model_group), decreasing = TRUE))[1],
+    top_site_fn = names(sort(table(site_function_group), decreasing = TRUE))[1],
+    top_tier = names(sort(table(acct_tier_rollup), decreasing = TRUE))[1],
+    top_territory = names(sort(table(acct_territory_rollup), decreasing = TRUE))[1],
+    top_channel = names(sort(table(last_tactic_campaign_channel), decreasing = TRUE))[1],
+    top_priority = names(sort(table(priority_group), decreasing = TRUE))[1],
+    pct_lowinfo = round(mean(site_or_mfg_lowinfo == TRUE) * 100, 1),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(conversion))
+
+mx_profiles
+```
+
+#### Business Translation
+
+The clusters above represent distinct Mx lead archetypes. The highest-converting cluster(s) reveal the "golden Mx profile" — the combination of industry, company type, channel, and priority that sales should prioritize. Low-converting clusters (especially those with high % Low Info) represent leads where current targeting is inefficient. If MasterControl shifts Mx outreach toward the highest-converting cluster, the overall Mx progression rate can move toward the 16-18% target.
+
+---
+
+## Analysis 4: Success Profile Clustering — ICP Discovery (Gower + PAM)
+
+We cluster ONLY successful Mx leads (SQL/SQO/Won) to reverse-engineer the Ideal Customer Profile. With only ~529 successes, PAM is ideal — the medoid of each cluster is a real winning lead that serves as a concrete archetype.
+
+### Prepare Successful Mx Leads
+
+```{r icp-prep}
+mx_success <- leads_clustered %>%
+  filter(solution_rollup == "Mx",
+         next_stage_c %in% c("SQL", "SQO", "Won")) %>%
+  mutate(
+    mfg_model_group = fct_lump_n(acct_manufacturing_model, n = 8,
+                                  other_level = "Other"),
+    priority_group = case_when(
+      str_detect(priority, "P1 - (Video|Live|Webinar) Demo|P1 - Website Pricing") ~ "P1 High-Intent",
+      str_detect(priority, "P1 - Contact Us|P1 - MQL|P1 - Discount") ~ "P1 Standard",
+      priority == "Priority 1" ~ "P1 Standard",
+      priority == "Priority 2" ~ "P2",
+      TRUE ~ "Low/No Priority"
+    )
+  )
+
+cat("Successful Mx leads:", nrow(mx_success))
+```
+
+### Select ICP Features
+
+```{r icp-features}
+# Top title word indicators for ICP analysis
+top_title_words <- c("quality", "manager", "director", "operations",
+                     "manufacturing", "regulatory", "vice", "president",
+                     "engineer", "senior", "compliance", "systems",
+                     "specialist", "chief", "lead")
+
+# Only include title words that exist in the dataset
+available_title_words <- intersect(top_title_words, names(mx_success))
+
+icp_df <- mx_success %>%
+  select(acct_target_industry, mfg_model_group, site_function_group,
+         acct_tier_rollup, acct_territory_rollup,
+         last_tactic_campaign_channel, priority_group,
+         all_of(available_title_words)) %>%
+  mutate(across(where(is.character), as.factor),
+         across(where(is.numeric), as.factor))
+
+cat("ICP features:", ncol(icp_df), "\n")
+cat("Successful Mx leads:", nrow(icp_df))
+```
+
+### Gower Distance + Optimal k
+
+```{r icp-gower-sil}
+cache_file <- file.path(cache_dir, "gower_icp.rds")
+if (file.exists(cache_file)) {
+  cached <- readRDS(cache_file)
+  gower_icp <- cached$gower_icp
+  sil_icp <- cached$sil_icp
+  cat("Loaded gower_icp and sil_icp from cache\n")
+} else {
+  gower_icp <- daisy(icp_df, metric = "gower")
+
+  sil_icp <- sapply(2:6, function(k) {
+    pam_fit <- pam(gower_icp, k = k, diss = TRUE)
+    pam_fit$silinfo$avg.width
+  })
+
+  saveRDS(list(gower_icp = gower_icp, sil_icp = sil_icp), cache_file)
+  cat("Computed and cached gower_icp and sil_icp\n")
+}
+
+sil_icp_df <- data.frame(k = 2:6, avg_silhouette = sil_icp)
+
+ggplot(sil_icp_df, aes(x = k, y = avg_silhouette)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_point(data = sil_icp_df %>% filter(avg_silhouette == max(avg_silhouette)),
+             color = "red", size = 4) +
+  labs(title = "ICP Clustering: Optimal k by Silhouette Width",
+       x = "Number of Clusters (k)", y = "Average Silhouette Width") +
+  theme_minimal()
+
+best_k_icp <- sil_icp_df$k[which.max(sil_icp_df$avg_silhouette)]
+cat("Optimal k for ICP:", best_k_icp, "with avg silhouette:", max(sil_icp_df$avg_silhouette))
+```
+
+### Fit PAM and Extract ICPs
+
+```{r icp-pam-fit}
+pam_icp <- pam(gower_icp, k = best_k_icp, diss = TRUE)
+
+mx_success$icp_cluster <- factor(pam_icp$clustering)
+
+# Silhouette plot
+fviz_silhouette(pam_icp) +
+  labs(title = "ICP Cluster Silhouette Plot") +
+  theme_minimal()
+```
+
+### ICP Archetype Table (Medoid Profiles)
+
+```{r icp-medoids}
+# Each medoid IS a real winning Mx lead — the concrete archetype
+medoid_icp_rows <- pam_icp$id.med
+icp_archetypes <- mx_success[medoid_icp_rows, ] %>%
+  select(icp_cluster, acct_target_industry, mfg_model_group, site_function_group,
+         acct_tier_rollup, acct_territory_rollup,
+         last_tactic_campaign_channel, priority_group,
+         contact_lead_title)
+
+icp_archetypes
+```
+
+### ICP Cluster Composition vs. Overall Mx Population
+
+```{r icp-vs-population, fig.width=12, fig.height=8}
+# Compare: what % of successful Mx leads are in each category vs. all Mx leads?
+mx_all_with_cluster <- leads_clustered %>%
+  filter(solution_rollup == "Mx") %>%
+  mutate(
+    mfg_model_group = fct_lump_n(acct_manufacturing_model, n = 8, other_level = "Other")
+  )
+
+compare_vars <- c("acct_target_industry", "site_function_group", "acct_tier_rollup",
+                   "acct_territory_rollup")
+
+comparison_data <- bind_rows(
+  mx_all_with_cluster %>%
+    select(all_of(compare_vars)) %>%
+    pivot_longer(everything(), names_to = "variable", values_to = "level") %>%
+    count(variable, level) %>%
+    group_by(variable) %>%
+    mutate(prop = n / sum(n), group = "All Mx Leads") %>%
+    ungroup(),
+  mx_success %>%
+    select(all_of(compare_vars)) %>%
+    pivot_longer(everything(), names_to = "variable", values_to = "level") %>%
+    count(variable, level) %>%
+    group_by(variable) %>%
+    mutate(prop = n / sum(n), group = "Successful Mx Leads") %>%
+    ungroup()
+)
+
+ggplot(comparison_data, aes(x = level, y = prop, fill = group)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ variable, scales = "free_x") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Successful Mx Leads vs. All Mx Leads: Feature Distribution",
+       subtitle = "Over-representation in 'Successful' group = targeting signal",
+       x = "", y = "Proportion", fill = "") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 8))
+```
+
+### ICP Cluster Summary
+
+```{r icp-summary}
+icp_summary <- mx_success %>%
+  group_by(icp_cluster) %>%
+  summarise(
+    n = n(),
+    pct_of_winners = round(100 * n() / nrow(mx_success), 1),
+    top_industry = names(sort(table(acct_target_industry), decreasing = TRUE))[1],
+    top_mfg = names(sort(table(mfg_model_group), decreasing = TRUE))[1],
+    top_site_fn = names(sort(table(site_function_group), decreasing = TRUE))[1],
+    top_tier = names(sort(table(acct_tier_rollup), decreasing = TRUE))[1],
+    top_territory = names(sort(table(acct_territory_rollup), decreasing = TRUE))[1],
+    top_channel = names(sort(table(last_tactic_campaign_channel), decreasing = TRUE))[1],
+    .groups = "drop"
+  )
+
+icp_summary
+```
+
+#### Business Translation
+
+Each ICP cluster is a data-driven Ideal Customer Profile for Mx. The medoid archetype gives the sales team a concrete example: "This exact type of lead, with this title, at this type of company, arriving via this channel, converted." The comparison chart shows which attributes are over-represented among winners relative to all Mx leads — these are the attributes to prioritize in targeting. If 60% of current Mx leads match no ICP cluster, that quantifies the targeting waste and the opportunity for improvement.
