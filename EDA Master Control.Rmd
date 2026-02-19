@@ -1056,11 +1056,12 @@ colnames(leads_cleaned_only)[duplicated(colnames(leads_cleaned_only))]
 dup_cols <- colnames(leads_cleaned_only)[colnames(leads_cleaned_only) %in% colnames(leads_cleaned_only)[duplicated(colnames(leads_cleaned_only))]]
 dup_cols
 
-leads_cleaned_only[, dup_cols]
+#view duplicate columns
+#leads_cleaned_only[, dup_cols]
 
 #drop solution.1
 leads_cleaned_final <- leads_cleaned_only[, colnames(leads_cleaned_only) != "solution.1"]
-leads_cleaned_final
+head(leads_cleaned_final)
 
 #check for duplicates again
 colnames(leads_cleaned_final)[duplicated(colnames(leads_cleaned_final))]
@@ -1074,7 +1075,7 @@ leads_cleaned_final <- leads_cleaned_final %>%
   )
 
 #view dataframe
-leads_cleaned_final
+head(leads_cleaned_final)
 ```
 
 #### Interpretation (Clean Dataset checks)
