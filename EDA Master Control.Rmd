@@ -1076,6 +1076,11 @@ leads_cleaned_final <- leads_cleaned_final %>%
 
 #view dataframe
 head(leads_cleaned_final)
+
+#save final modeling-ready dataset
+dir.create("data", showWarnings = FALSE)
+saveRDS(leads_cleaned_final, "data/leads_cleaned_final.rds")
+
 ```
 
 #### Interpretation (Clean Dataset checks)
