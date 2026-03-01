@@ -1,0 +1,319 @@
+---
+title: "Modeling Master Control"
+author: "Josh, Joel, Corinn, Gaby"
+date: "2026-02-28"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    toc-title: "Contents"
+    embed-resources: true
+execute:
+  include: true
+  eval: true
+  warning: false
+  message: false
+editor: 
+  markdown: 
+    wrap: sentence
+---
+
+# Introduction
+This notebook builds an initial model to help identify which MX leads are more likely to be successful. Using the cleaned dataset from the EDA phase, the goal is to better understand which lead characteristics are associated with progression to SQL, SQO, or Won, so Marketing and Sales can target higher potential leads more effectively.
+
+### Load Data
+
+In this section, we load the cleaned modeling-ready dataset,`leads_cleaned_final.rds` that was created during the EDA phase. This gives us a consistent starting point for modeling and allows the notebook to focus on prediction without repeating all of the earlier data cleaning steps.
+
+```{r Load Data, include=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(caret)
+library(rpart.plot)
+
+leads_cleaned_final <- readRDS("data/leads_cleaned_final.rds")
+
+#glimpse(leads_cleaned_final)
+dim(leads_cleaned_final)
+
+"solution.1" %in% names(leads_cleaned_final)
+```
+
+
+# Create Modeling Dataset
+
+In this section, we prepare the final dataset that will be used for modeling. Because the business problem is focused on MX targeting, we keep only MX leads, remove fields that should not be used as predictors, and make sure the target variable is labeled clearly for interpretation.
+
+```{r Modeling Dataset}
+# Keep MX leads only and remove IDs + original outcome
+mx_model_data <- leads_cleaned_final %>%
+  filter(solution_rollup == "Mx") %>%
+  select(-qal_id, -contact_lead_id, -next_stage_c)
+
+# Drop leftover duplicate column if present
+if ("solution.1" %in% names(mx_model_data)) {
+  mx_model_data <- mx_model_data %>%
+    select(-solution.1)
+}
+
+# Relabel target for readability
+mx_model_data <- mx_model_data %>%
+  mutate(
+    next_stage_target = factor(
+      next_stage_target,
+      levels = c("0", "1"),
+      labels = c("Not Successful", "Successful")
+    )
+  )
+
+# Quick checks
+dim(mx_model_data)
+count(mx_model_data, next_stage_target)
+"solution.1" %in% names(mx_model_data)
+
+
+```
+
+### Interpretation of Output
+
+The modeling dataset now includes only **MX leads**, since that is the product line this project is focused on. After removing ID fields, the original outcome column, and the leftover duplicate column, the final MX modeling dataset contains 4,125 rows and 376 columns.
+
+The target variable is also clearly imbalanced. Out of the 4,125 MX leads, 3,592 were not successful and 533 were successful, where successful means the lead progressed to **SQL, SQO, or Won**. This means only about **12.9%** of MX leads reached a successful outcome.
+
+From a business perspective, this tells us that successful MX leads are relatively uncommon, which is consistent with what we found in the EDA. For the marketing team, this is important because it confirms that the current pool of MX leads contains many more low converting leads than high converting ones. Because of that, the goal of modeling is not just to predict the majority group, but to help identify the smaller group of leads with a higher chance of success so targeting can be improved.
+
+
+
+# Train/Test Split
+
+The next step is to split the MX dataset into a training set and a test set. The training set will be used to build the model, and the test set will be used later to check how well the model performs on new data. We use a 70/30 split, and we keep the success rate similar in both groups so the comparison is fair.
+
+```{r Train and Test Split}
+
+# Create 70/30 train/test split while keeping target balance similar
+set.seed(123)
+
+# Create split index
+split_index <- createDataPartition(
+  y = mx_model_data$next_stage_target,
+  p = 0.70,
+  list = FALSE
+)
+
+# Create training and test datasets
+mx_training_data <- mx_model_data[split_index, ]
+mx_test_data <- mx_model_data[-split_index, ]
+
+# Quick checks
+dim(mx_training_data)
+dim(mx_test_data)
+
+# Class balance by dataset
+bind_rows(
+  mx_training_data %>% mutate(dataset = "Training Set"),
+  mx_test_data %>% mutate(dataset = "Test Set")
+) %>%
+  count(dataset, next_stage_target)
+```
+
+### Interpretation of Output
+
+The MX dataset was successfully split into a training set with 2,889 rows and a test set with 1,236 rows, which matches the intended 70/30 split. This gives us one dataset to build the model and another separate dataset to evaluate how well the model performs on data it has not seen before.
+
+The balance of successful and not successful leads stayed very similar in both groups. In the training set, 2,515 leads were not successful and 374 were successful, while in the test set, 1,077 leads were not successful and 159 were successful. This is important because it means both datasets reflect the same overall success pattern, giving us a fairer and more reliable way to evaluate whether the model can help identify higher-potential MX leads.
+
+# Performance Benchmark
+
+For this project, a useful model should perform better than random guessing and should show a meaningful ability to separate higher-potential MX leads from lower-potential ones. Because the target variable is imbalanced, ROC AUC is one of the most important benchmark metrics. As an initial guideline, a model with ROC AUC around 0.70 or higher would suggest that the model is capturing useful predictive signal.
+
+At the same time, business usefulness also matters. Even if the model is not perfect, it can still be valuable if it helps Marketing and Sales better prioritize leads that are more likely to progress to SQL, SQO, or Won compared with the current untargeted approach
+
+# Modeling
+
+## Baseline Model
+
+In this section, we build a baseline model using logistic regression. This gives us a simple starting point for predicting whether an MX lead will be successful. Starting with a baseline model is helpful because it gives us an initial benchmark that stronger models can later be compared against.
+
+For this project, logistic regression is a good first choice because it is easier to interpret than more complex models. Since the business goal is to understand which lead characteristics, such as job title and industry, are associated with higher conversion, a baseline model helps us begin answering that question in a way that is still understandable for the business team.
+
+```{r BaseLine Model}
+# Create cross-validation folds on the training data
+set.seed(123)
+
+mx_folds <- vfold_cv(
+  mx_training_data,
+  v = 5,
+  strata = next_stage_target
+)
+
+# Create recipe for preprocessing
+mx_recipe <- recipe(next_stage_target ~ ., data = mx_training_data) %>%
+  step_rm(contact_lead_title) %>%
+  step_novel(all_nominal_predictors()) %>%
+  step_other(all_nominal_predictors(), threshold = 0.01) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_zv(all_predictors())
+
+# Define logistic regression model
+mx_log_model <- logistic_reg() %>%
+  set_engine("glm") %>%
+  set_mode("classification")
+
+# Build workflow
+mx_log_workflow <- workflow() %>%
+  add_recipe(mx_recipe) %>%
+  add_model(mx_log_model)
+
+# Fit model with cross-validation
+mx_log_results <- fit_resamples(
+  mx_log_workflow,
+  resamples = mx_folds,
+  metrics = metric_set(
+    yardstick::roc_auc,
+    yardstick::accuracy,
+    yardstick::precision,
+    yardstick::recall,
+    yardstick::f_meas
+  )
+)
+
+# View performance metrics
+collect_metrics(mx_log_results)
+
+```
+
+
+### Interpretation of Output
+
+The baseline logistic regression model ran successfully and produced an initial set of performance metrics using 5-fold cross-validation on the training data. The model achieved an accuracy of 0.86 and a **ROC AUC of 0.75**. Because the target variable is imbalanced, ROC AUC is especially important here. A value of **0.75** suggests that the model has a reasonable ability to separate leads that are more likely to be successful from those that are less likely to be successful.
+
+At this stage, the model is being evaluated only on the training data through cross-validation, while the test set is intentionally saved for later use with the final selected model. This helps protect the test set from influencing model development. Since the baseline ROC AUC is above the initial benchmark of **0.70**, the results suggest that the dataset contains useful predictive signal. At the same time, the warnings indicate that logistic regression may not be the most stable final model for this wide dataset, so it should be treated as a starting benchmark that later models can be compared against.
+
+## Decision Tree 
+
+In this section, a decision tree model is used as a second approach to predict MX lead success. Unlike logistic regression, a decision tree can capture nonlinear patterns and interactions more naturally, while also producing simpler rules that are easier to explain to a business audience.
+
+This is especially useful for this project because the goal is not only to predict success, but also to better understand which types of leads should be prioritized. A decision tree can help translate the data into more practical decision rules around variables such as industry, enrichment quality, and title-related signals.
+
+```{r Decision Tree}
+# Create decision tree model
+mx_tree_model <- decision_tree(
+  cost_complexity = tune(),
+  tree_depth = tune(),
+  min_n = tune()
+) %>%
+  set_engine("rpart") %>%
+  set_mode("classification")
+
+# Build workflow
+mx_tree_workflow <- workflow() %>%
+  add_recipe(mx_recipe) %>%
+  add_model(mx_tree_model)
+
+# Create tuning grid
+mx_tree_grid <- grid_regular(
+  cost_complexity(),
+  tree_depth(),
+  min_n(),
+  levels = 3
+)
+
+# Tune decision tree with cross-validation
+set.seed(123)
+
+mx_tree_results <- tune_grid(
+  mx_tree_workflow,
+  resamples = mx_folds,
+  grid = mx_tree_grid,
+  metrics = metric_set(
+    yardstick::roc_auc,
+    yardstick::accuracy,
+    yardstick::precision,
+    yardstick::recall,
+    yardstick::f_meas
+  )
+)
+
+# Show top-performing tree models based on ROC AUC
+show_best(mx_tree_results, metric = "roc_auc")
+
+# Select best tree based on ROC AUC
+best_tree <- select_best(mx_tree_results, metric = "roc_auc")
+best_tree
+
+# Finalize workflow with best parameters
+final_tree_workflow <- finalize_workflow(
+  mx_tree_workflow,
+  best_tree
+)
+
+# Fit finalized decision tree on training data
+final_tree_fit <- fit(final_tree_workflow, data = mx_training_data)
+```
+
+
+### Interpretation of Output
+The decision tree model was tuned using cross-validation on the training data, testing different combinations of tree depth, minimum node size, and cost complexity. The best-performing tree achieved a ROC AUC of 0.82, which is higher than the baseline logistic regression ROC AUC of 0.75. This suggests that the decision tree is doing a better job of separating higher-potential MX leads from lower-potential ones.
+
+The selected tree used a tree depth of 8 and a minimum node size of 21, which suggests that lead success depends on multiple interacting factors rather than just one or two variables alone. From a business perspective, this is encouraging because it means the model may be capturing more realistic lead patterns. It also suggests that a decision tree may be a stronger option than the baseline logistic regression for identifying which types of MX leads Marketing and Sales should prioritize.
+
+
+
+```{r Plot Tree}
+# Create a simpler tree model for interpretation
+simple_tree_model <- decision_tree(
+  tree_depth = 3,
+  min_n = 40
+) %>%
+  set_engine("rpart") %>%
+  set_mode("classification")
+
+# Build workflow
+simple_tree_workflow <- workflow() %>%
+  add_recipe(mx_recipe) %>%
+  add_model(simple_tree_model)
+
+# Fit simpler tree
+simple_tree_fit <- fit(simple_tree_workflow, data = mx_training_data)
+
+# Extract fitted tree
+simple_tree_plot_fit <- extract_fit_parsnip(simple_tree_fit)$fit
+
+# Plot simpler tree
+rpart.plot(
+  simple_tree_plot_fit,
+  type = 3,
+  extra = 104,
+  fallen.leaves = TRUE,
+  roundint = FALSE
+)
+```
+
+#### Interpretation of the plot
+
+This simplified decision tree shows the first few decision rules the model is using to separate stronger MX leads from weaker ones. The first split is based on `Priority 2`, which in the data dictionary refers to a more standard-priority lead rather than a higher-intent lead such as a demo request or contact-us inquiry. In simple terms, the model is first checking whether the lead looks more routine or more engaged. That makes business sense, because lead priority can reflect how ready the prospect may be to move forward.
+
+The next important split is `mfg_lowinfo`, which shows whether the manufacturing model information is missing or low quality. This is consistent with the EDA findings, where incomplete enrichment was associated with weaker lead quality. After that, the tree uses `solution_Manufacturing`, which is a dummy variable created from the `solution` field. This does not refer to all MX leads overall. It specifically shows whether the lead is associated with the `Manufacturing` category inside that variable. In the strongest branch of this simplified tree, leads that are **not Priority 2**, have **better manufacturing information**, and are associated with **Manufacturing** end in the most favorable success node. Overall, the plot suggests that stronger MX leads are driven by a combination of **higher engagement**, **better enrichment quality**, and **better business fit**, rather than by only one variable.
+
+#### What the Boxes in the Tree Mean
+
+Each box in the tree is a final prediction group, and it gives three pieces of information:
+
+-   The **top line** shows the predicted class, such as **Successful** or **Not Successful**
+-   The **middle numbers** show the estimated probabilities for each class  
+    -   for example, `.34 .66` means about **34% Not Successful** and **66% Successful**
+-   The **bottom percentage** shows the share of leads that fall into that box
+
+So if a green box says **Successful / .34 .66 / 4%**, that means:
+
+-   the model predicts that group as **Successful**
+-   about **66% of leads in that group were successful**
+-   and that group represents **4%** of the data in the tree
+
+#### What We Can Infer From This Plot
+
+This plot suggests that the model is finding some practical screening rules for MX leads. Leads that appear more engaged, have more complete manufacturing-related information, and fit the manufacturing product context seem more promising. On the other hand, leads with **Priority 2** or **low-info manufacturing fields** move early into lower-success branches, which supports the EDA finding that weaker enrichment is a negative signal.
+
+At the same time, this plot does **not** give a clean ranking of the exact best job titles. The tree is mainly showing the strongest top-level splits, and in this simplified version, title variables do not appear in the first few branches. That does not mean titles are unimportant. It only means that, in this tree, other variables were stronger early splitters. Because of that, this plot is most helpful for understanding business rules.
+
