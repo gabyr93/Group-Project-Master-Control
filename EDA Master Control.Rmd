@@ -107,7 +107,7 @@ pacman::p_load(tidyverse,stringr,tidytext,quanteda,quanteda.textplots,janitor,sk
 ```{r Load Data, warning=FALSE}
 
 # Load Data
-leads <- read_csv("QAL Performance for MSBA.csv")
+leads <- read_csv("Mastercontrol QAL Performance.csv")
 
 
 # Basic structure
@@ -2118,6 +2118,19 @@ icp_summary <- mx_success %>%
   )
 
 icp_summary
+```
+
+### Export Cluster Labels for Modeling
+
+```{r save-cluster-labels}
+saveRDS(
+  leads_clustered %>% select(qal_id, account_cluster, title_cluster),
+  "data/cluster_labels.rds"
+)
+saveRDS(
+  mx_leads %>% select(qal_id, mx_cluster),
+  "data/mx_cluster_labels.rds"
+)
 ```
 
 **ICP summary:** The ideal MX customer is an Americas-based, small-to-medium, Pharma/BioTech or Medical Device company with an actual manufacturing function (not Non-Mfg/Low Info).
