@@ -31,6 +31,11 @@ library(tidyverse)
 library(tidymodels)
 library(caret)
 library(rpart.plot)
+library(ROSE)
+library(pROC)
+library(xgboost)
+library(glmnet)
+library(caret)
 
 leads_cleaned_final <- readRDS("data/leads_cleaned_final.rds")
 
@@ -190,6 +195,86 @@ The baseline logistic regression model ran successfully and produced an initial 
 
 At this stage, the model is being evaluated only on the training data through cross-validation, while the test set is intentionally saved for later use with the final selected model. This helps protect the test set from influencing model development. Since the baseline ROC AUC is above the initial benchmark of **0.70**, the results suggest that the dataset contains useful predictive signal. At the same time, the warnings indicate that logistic regression may not be the most stable final model for this wide dataset, so it should be treated as a starting benchmark that later models can be compared against.
 
+
+## Logistic Regression with Interaction combinations
+Additional attempts were made to improve upon the initial logistic regression model using combinations of interactions. As interpretability is necessary, this exlcudes the use of more complex "black-box" methods, necessitating further exploration of simpler modeling options. 
+```{r}
+
+
+# --- Data Prep ---
+train_lr <- mx_training_data
+
+train_lr$next_stage_target <- factor(train_lr$next_stage_target)
+levels(train_lr$next_stage_target) <- gsub(" ", "_", levels(train_lr$next_stage_target))
+
+# Case weights for imbalance
+case_weights_lr <- ifelse(train_lr$next_stage_target == "Successful", 7, 1)
+
+# --- CV Control ---
+cv_control_lr <- trainControl(
+  method          = "cv",
+  number          = 5,
+  classProbs      = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final",
+  allowParallel   = TRUE,
+  verboseIter     = TRUE
+)
+
+# --- Create interaction terms automatically ---
+# model.matrix expands all factors AND creates pairwise interactions
+# between your most important features from RF/XGB
+
+top_features <- c("priority", "last_tactic_campaign_channel", 
+                  "acct_tier_rollup", "acct_primary_site_function",
+                  "solution", "acct_territory_rollup")
+
+# Create interaction matrix from top features only
+train_interactions <- model.matrix(
+  ~ .^2,
+  data = dplyr::select(train_lr, all_of(top_features))
+) %>% 
+  as.data.frame()
+
+
+# Remove intercept column using base R indexing
+train_interactions <- train_interactions[, colnames(train_interactions) != "(Intercept)"]
+
+# Add back remaining non-interacted columns
+remaining_cols <- dplyr::select(train_lr, -all_of(top_features), -next_stage_target)
+
+train_lr_final <- bind_cols(train_interactions, remaining_cols) %>%
+  mutate(next_stage_target = train_lr$next_stage_target)
+
+cat(sprintf("Columns after interactions: %d\n", ncol(train_lr_final)))
+
+# --- Grid Search (glmnet = regularized logistic regression) ---
+lr_grid <- expand.grid(
+  alpha  = c(0, 0.5, 1),     # 0 = Ridge, 1 = Lasso, 0.5 = ElasticNet
+  lambda = c(0.001, 0.01, 0.1, 1)  # Regularization strength
+)
+
+# --- Train ---
+lr_model <- train(
+  next_stage_target ~ .,
+  data      = train_lr_final,
+  method    = "glmnet",
+  metric    = "ROC",
+  trControl = cv_control_lr,
+  tuneGrid  = lr_grid,
+  weights   = case_weights_lr,
+  family    = "binomial"
+)
+
+cat("\n--- Best Hyperparameters ---\n")
+print(lr_model$bestTune)
+
+cat("\n--- CV Results (top 5 by ROC) ---\n")
+lr_model$results %>% arrange(desc(ROC)) %>% head(5) %>% print()
+```
+### Interpretation of Output
+The top model outputs an improved **ROC AUC of .794** . The top performing combinations of hyper parameter values all outperform the previous model which is to be expected. Not a lot of detail will be given at this point on the results as future models are likely to out perform regression models.  
+
 ## Decision Tree 
 
 In this section, a decision tree model is used as a second approach to predict MX lead success. Unlike logistic regression, a decision tree can capture nonlinear patterns and interactions more naturally, while also producing simpler rules that are easier to explain to a business audience.
@@ -316,6 +401,314 @@ So if a green box says **Successful / .34 .66 / 4%**, that means:
 This plot suggests that the model is finding some practical screening rules for MX leads. Leads that appear more engaged, have more complete manufacturing-related information, and fit the manufacturing product context seem more promising. On the other hand, leads with **Priority 2** or **low-info manufacturing fields** move early into lower-success branches, which supports the EDA finding that weaker enrichment is a negative signal.
 
 At the same time, this plot does **not** give a clean ranking of the exact best job titles. The tree is mainly showing the strongest top-level splits, and in this simplified version, title variables do not appear in the first few branches. That does not mean titles are unimportant. It only means that, in this tree, other variables were stronger early splitters. Because of that, this plot is most helpful for understanding business rules.
+
+## Random Forest Model
+In this section a random forest model is trained, using both over sampled data and data matching the default class imbalance. 
+
+### OverSampled
+
+Oversampling was used to get the data to a 50/50 class balance split. Then grid search and 5 fold cross validation was used. This process was run iteritavely to test and try and avoid overfitting. 
+
+
+```{r}
+#drop qal cohort date
+mx_training_data <- mx_training_data %>% select(-qal_cohort_date)
+mx_test_data <- mx_test_data %>% select(-qal_cohort_date)
+```
+
+
+```{r}
+#create 50/50 data split
+train_balanced <- upSample(
+  x = mx_training_data %>% select(-next_stage_target),
+  y = mx_training_data$next_stage_target,
+  yname = "next_stage_target"
+)
+
+train_balanced <- train_balanced %>% select(-contact_lead_title)
+train_balanced$next_stage_target <-factor(train_balanced$next_stage_target)
+levels(train_balanced$next_stage_target) <- gsub(" ", "_", levels(train_balanced$next_stage_target))
+```
+
+
+```{r}
+#define cv params
+cv_control <- trainControl(
+  method          = "cv",
+  number          = 5,
+  classProbs      = TRUE,           # Needed for ROC/AUC
+  summaryFunction = twoClassSummary, # Reports ROC, Sens, Spec
+  savePredictions = "final",
+  allowParallel   = TRUE,
+  verboseIter     = TRUE
+)
+
+#define grid search params
+#rf_grid <- expand.grid(
+ # mtry            = c(10, 20, 30, floor(sqrt(ncol(train_balanced) - 1))),
+  #splitrule       = c("gini", "extratrees"),
+  #min.node.size   = c(1, 5, 10)
+#)
+
+#for brevity on fileouptut best performing is hard coded
+rf_grid <- expand.grid(
+  mtry            = 30,
+  splitrule       = "gini",
+  min.node.size   = c(50)
+)
+```
+
+
+
+```{r}
+#train rf model
+rf_model <- train(
+  next_stage_target ~ .,
+  data       = train_balanced,
+  method     = "ranger",
+  metric     = "ROC",              # Optimise on AUC (better for imbalanced)
+  trControl  = cv_control,
+  tuneGrid   = rf_grid,
+  num.trees  = 500,
+  importance = "permutation"       # Required for variable importance
+)
+
+```
+
+```{r}
+cat("\n--- Best Hyperparameters ---\n")
+print(rf_model$bestTune)
+
+cat("\n--- CV Results (top 5 by ROC) ---\n")
+cv_results <- rf_model$results %>%
+  arrange(desc(ROC)) %>%
+  head(6)
+print(cv_results)
+#tree overfitting 
+```
+
+
+```{r}
+importance_df <- varImp(rf_model)$importance %>%
+  rownames_to_column("Feature") %>%
+  rename(Importance = Overall) %>%
+  arrange(desc(Importance)) %>%
+  head(50)
+
+print(importance_df)
+```
+
+```{r}
+# Fix test data factor levels
+mx_test_data$next_stage_target <- factor(mx_test_data$next_stage_target)
+levels(mx_test_data$next_stage_target) <- gsub(" ", "_", levels(mx_test_data$next_stage_target))
+
+# Use caret's predict wrapper — handles encoding internally
+test_probs <- predict(rf_model, newdata = mx_test_data, type = "prob")[, "Successful"]
+
+test_preds <- predict(rf_model, newdata = mx_test_data)
+
+# Evaluate
+cm <- confusionMatrix(test_preds, mx_test_data$next_stage_target, positive = "Successful")
+print(cm)
+
+cat(sprintf("\nTest AUC: %.4f\n", auc(roc(mx_test_data$next_stage_target, test_probs,
+                                          levels = c("Not_Successful", "Successful")))))
+```
+
+#### Interpretation of Output
+When attempting to use random forest with over sampled data to achieve a 50/50 class balance split, the cross validation and grid search always found the smallest number of terminal nodes to be the best. Initially the cross validation ROC-AUC was unreasonably high, so holdout data was used to verify that in fact the data was over fitting. When running on test data though every time their was a substantial drop off in AUC indicating over fitting, even when trying higher values of terminal nodes.The models all coalesced around AUC of .82 to .83 previous models. Testing this model to confirm it was over fitting did require using the holdout data which would constitute data leakage, given this and the tendency to over fit while not having great performance random forest appears to not be a good fit for this data. 
+
+### Standard Class Distribution
+
+Next a random forest model was trained without oversampling (class imbalance), to avoid data leakage this time much higher terminal node values were chosen for grid search. Similar to before 5 fold cross validation was performed. 
+
+```{r}
+# Use original training data with class weights instead of oversampling
+train_balanced <- mx_training_data %>% 
+  select(-contact_lead_title)
+
+train_balanced$next_stage_target <- factor(train_balanced$next_stage_target)
+levels(train_balanced$next_stage_target) <- gsub(" ", "_", levels(train_balanced$next_stage_target))
+```
+
+```{r}
+#define cv params
+cv_control <- trainControl(
+  method          = "cv",
+  number          = 5,
+  classProbs      = TRUE,           # Needed for ROC/AUC
+  summaryFunction = twoClassSummary, # Reports ROC, Sens, Spec
+  savePredictions = "final",
+  allowParallel   = TRUE,
+  verboseIter     = TRUE
+)
+
+#define grid search params
+#rf_grid <- expand.grid(
+ # mtry            = c(10, 20, 30, floor(sqrt(ncol(train_balanced) - 1))),
+  #splitrule       = c("gini", "extratrees"),
+  #min.node.size   = c(1, 5, 10)
+#)
+
+# best values for brevity
+rf_grid <- expand.grid(
+  mtry            = c(20),
+  splitrule       = "gini",
+  min.node.size   = c(10)
+)
+```
+
+
+
+```{r}
+
+# Calculate per-row weights based on class
+case_weights <- ifelse(train_balanced$next_stage_target == "Successful", 7, 1)
+
+
+rf_model <- train(
+  next_stage_target ~ .,
+  data       = train_balanced,
+  method     = "ranger",
+  metric     = "ROC",
+  trControl  = cv_control,
+  tuneGrid   = rf_grid,
+  num.trees  = 500,
+  importance = "permutation",
+  weights = case_weights
+)
+```
+
+```{r}
+cat("\n--- Best Hyperparameters ---\n")
+print(rf_model$bestTune)
+
+cat("\n--- CV Results (top 5 by ROC) ---\n")
+cv_results <- rf_model$results %>%
+  arrange(desc(ROC)) %>%
+  head(6)
+print(cv_results)
+#tree overfitting 
+```
+
+#### Interpretation of Output
+When attempting to provide grid search parameters that would avoid overfitting ROC-AUC dropped substantially, and perfomed even worse then the prior trained model. Given the points discussed before it can be concluded that random forest is not a good fit for this data. 
+
+## XG Boost
+A standard XGBoost model was trained, given XGBoost lacks interpretability this model is evaluated and will be contrasted with Explainable Boosting Machine next, which performs similar modeling but by design allows for explainability. If XGBoost has markedly better perofrmance over EBM, future steps will be taken to help explain the model decisions. 
+
+
+```{r}
+# XGBoost version — matching your existing RF pipeline
+
+
+# --- Data Prep (no oversampling — use weights like RF v2) ---
+train_xgb <- mx_training_data %>% select(-contact_lead_title)
+train_xgb$next_stage_target <- factor(train_xgb$next_stage_target)
+levels(train_xgb$next_stage_target) <- gsub(" ", "_", levels(train_xgb$next_stage_target))
+
+# Case weights for imbalance
+case_weights_xgb <- ifelse(train_xgb$next_stage_target == "Successful", 7, 1)
+
+# --- CV Control (identical to RF) ---
+cv_control_xgb <- trainControl(
+  method          = "cv",
+  number          = 5,
+  classProbs      = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final",
+  allowParallel   = TRUE,
+  verboseIter     = TRUE
+)
+
+# --- Grid Search ---
+xgb_grid <- expand.grid(
+  nrounds          = 500,   # Number of trees
+  max_depth        = 6,            # Tree depth — keep shallow vs RF
+  eta              = 0.01,       # Learning rate
+  gamma            = 0,                  # Min loss reduction to split
+  colsample_bytree = 0.7,        # Fraction of cols per tree (like mtry)
+  min_child_weight = 5,            # Like min.node.size
+  subsample        = 0.8                 # Row sampling per tree
+)
+
+# --- Grid Search ---
+#xgb_grid <- expand.grid(
+ # nrounds          = c(100,250,500),   # Number of trees
+  #max_depth        = c(2,4,6),            # Tree depth — keep shallow vs RF
+  #eta              = c(.1,0.01),       # Learning rate
+  #gamma            = 0,                  # Min loss reduction to split
+  #colsample_bytree = c(0.7,0.5)        # Fraction of cols per tree (like mtry)
+  #min_child_weight = c(5,10,20)            # Like min.node.size
+  #subsample        = c(0.7,0.8)                 # Row sampling per tree
+#)
+
+cat(sprintf("Grid search over %d combinations...\n", nrow(xgb_grid)))
+
+# --- Train XGBoost ---
+xgb_model <- train(
+  next_stage_target ~ .,
+  data        = train_xgb,
+  method      = "xgbTree",
+  metric      = "ROC",
+  trControl   = cv_control_xgb,
+  tuneGrid    = xgb_grid,
+  weights     = case_weights_xgb,
+  verbosity   = 0                        # Suppress xgb internal logs
+)
+
+```
+
+
+```{r}
+# Fix test data factor levels to match training
+mx_test_data$next_stage_target <- factor(mx_test_data$next_stage_target)
+levels(mx_test_data$next_stage_target) <- gsub(" ", "_", levels(mx_test_data$next_stage_target))
+
+# Now run confusion matrix
+#cm_xgb <- confusionMatrix(test_preds_xgb, mx_test_data$next_stage_target, positive = "Successful")
+#print(cm_xgb)
+
+#cat(sprintf("\nTest AUC: %.4f\n", pROC::auc(pROC::roc(mx_test_data$next_stage_target, test_probs_xgb,
+                                                        #levels = c("Not_Successful", "Successful")))))
+```
+
+
+```{r}
+# --- Best Hyperparameters ---
+cat("\n--- Best Hyperparameters ---\n")
+print(xgb_model$bestTune)
+
+cat("\n--- CV Results (top 5 by ROC) ---\n")
+cv_results_xgb <- xgb_model$results %>%
+  arrange(desc(ROC)) %>%
+  head(10)
+print(cv_results_xgb)
+
+# --- Feature Importance ---
+importance_df_xgb <- varImp(xgb_model)$importance %>%
+  rownames_to_column("Feature") %>%
+  rename(Importance = Overall) %>%
+  arrange(desc(Importance)) %>%
+  head(5)
+print(importance_df_xgb)
+
+# --- Predict on Test Set ---
+test_probs_xgb <- predict(xgb_model, newdata = mx_test_data, type = "prob")[, "Successful"]
+test_preds_xgb <- predict(xgb_model, newdata = mx_test_data)
+
+# --- Evaluate ---
+cm_xgb <- confusionMatrix(test_preds_xgb, mx_test_data$next_stage_target, positive = "Successful")
+print(cm_xgb)
+
+cat(sprintf("\nTest AUC: %.4f\n", pROC::auc(pROC::roc(mx_test_data$next_stage_target, test_probs_xgb,
+                                                        levels = c("Not_Successful", "Successful")))))
+```
+
+#### Interpretation of Output
+This had similar performance to random forest with **AUC ROC of .82**, the model has a good balance of specificity being able to correctly identify 76% of leads that wouldn't progress and sensitivity being able to correctly identify 77% of real successful leads. We can see the top feature importance, which tells us what the most important feature is and then a score for the next most important relative to that. 
+
 
 ## Explainable Boosting Machine (EBM)
 
@@ -469,4 +862,17 @@ reticulate::py_save_object(mx_ebm, filename = "data/mx_ebm.pkl")
 
 colnames(predict(mx_ebm, newdata = ebm_test[1:3, ]))
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
