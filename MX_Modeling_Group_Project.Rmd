@@ -82,9 +82,9 @@ count(mx_model_data, next_stage_target)
 
 ### Interpretation of Output
 
-The modeling dataset now includes only **MX leads**, since that is the product line this project is focused on. After removing ID fields, the original outcome column, and the leftover duplicate column, the final MX modeling dataset contains 4,125 rows and 376 columns.
+The modeling dataset now includes only MX leads, since that is the product line this project is focused on. After removing ID fields, the original outcome column, and the leftover duplicate column, the final MX modeling dataset contains 4,081 rows and 419 columns.
 
-The target variable is also clearly imbalanced. Out of the 4,125 MX leads, 3,592 were not successful and 533 were successful, where successful means the lead progressed to **SQL, SQO, or Won**. This means only about **12.9%** of MX leads reached a successful outcome.
+The target variable is also clearly imbalanced. Out of the 4,081 MX leads, 3,552 were not successful and 529 were successful, where successful means the lead progressed to SQL, SQO, or Won. This means only about 13.0% of MX leads reached a successful outcome.
 
 From a business perspective, this tells us that successful MX leads are relatively uncommon, which is consistent with what we found in the EDA. For the marketing team, this is important because it confirms that the current pool of MX leads contains many more low converting leads than high converting ones. Because of that, the goal of modeling is not just to predict the majority group, but to help identify the smaller group of leads with a higher chance of success so targeting can be improved.
 
@@ -124,9 +124,9 @@ bind_rows(
 
 ### Interpretation of Output
 
-The MX dataset was successfully split into a training set with 2,889 rows and a test set with 1,236 rows, which matches the intended 70/30 split. This gives us one dataset to build the model and another separate dataset to evaluate how well the model performs on data it has not seen before.
+The MX dataset was successfully split into a training set with 2,487 rows and a test set with 1,223 rows, which matches the intended 70/30 split. This gives us one dataset to build the model and another separate dataset to evaluate how well the model performs on data it has not seen before.
 
-The balance of successful and not successful leads stayed very similar in both groups. In the training set, 2,515 leads were not successful and 374 were successful, while in the test set, 1,077 leads were not successful and 159 were successful. This is important because it means both datasets reflect the same overall success pattern, giving us a fairer and more reliable way to evaluate whether the model can help identify higher-potential MX leads.
+The balance of successful and not successful leads stayed very similar in both groups. In the training set, 2,487 leads were not successful and 371 were successful, while in the test set, 1,065 leads were not successful and 158 were successful. This is important because it means both datasets reflect the same overall success pattern, giving us a fairer and more reliable way to evaluate whether the model can help identify higher-potential MX leads.
 
 # Performance Benchmark
 
@@ -191,10 +191,9 @@ collect_metrics(mx_log_results)
 
 ### Interpretation of Output
 
-The baseline logistic regression model ran successfully and produced an initial set of performance metrics using 5-fold cross-validation on the training data. The model achieved an accuracy of 0.86 and a **ROC AUC of 0.75**. Because the target variable is imbalanced, ROC AUC is especially important here. A value of **0.75** suggests that the model has a reasonable ability to separate leads that are more likely to be successful from those that are less likely to be successful.
+The baseline logistic regression model ran successfully and produced an initial set of performance metrics using 5-fold cross-validation on the training data. The model achieved an accuracy of 0.85 and a ROC AUC of 0.71. Because the target variable is imbalanced, ROC AUC is especially important here. A value of 0.71 suggests that the model has a reasonable ability to separate leads that are more likely to be successful from those that are less likely to be successful.
 
-At this stage, the model is being evaluated only on the training data through cross-validation, while the test set is intentionally saved for later use with the final selected model. This helps protect the test set from influencing model development. Since the baseline ROC AUC is above the initial benchmark of **0.70**, the results suggest that the dataset contains useful predictive signal. At the same time, the warnings indicate that logistic regression may not be the most stable final model for this wide dataset, so it should be treated as a starting benchmark that later models can be compared against.
-
+At this stage, the model is being evaluated only on the training data through cross-validation, while the test set is intentionally saved for later use with the final selected model. This helps protect the test set from influencing model development. Since the baseline ROC AUC is above the initial benchmark of 0.70, the results suggest that the dataset contains useful predictive signal. At the same time, the warnings indicate that logistic regression may not be the most stable final model for this wide dataset, so it should be treated as a starting benchmark that later models can be compared against.
 
 ## Logistic Regression with Interaction combinations
 Additional attempts were made to improve upon the initial logistic regression model using combinations of interactions. As interpretability is necessary, this exlcudes the use of more complex "black-box" methods, necessitating further exploration of simpler modeling options. 
@@ -266,9 +265,6 @@ lr_model <- train(
   family    = "binomial"
 )
 
-cat("\n--- Best Hyperparameters ---\n")
-print(lr_model$bestTune)
-
 cat("\n--- CV Results (top 5 by ROC) ---\n")
 lr_model$results %>% arrange(desc(ROC)) %>% head(5) %>% print()
 ```
@@ -280,38 +276,69 @@ The top model outputs an improved **ROC AUC of .794** . The top performing combi
 In this section, a decision tree model is used as a second approach to predict MX lead success. Unlike logistic regression, a decision tree can capture nonlinear patterns and interactions more naturally, while also producing simpler rules that are easier to explain to a business audience.
 
 This is especially useful for this project because the goal is not only to predict success, but also to better understand which types of leads should be prioritized. A decision tree can help translate the data into more practical decision rules around variables such as industry, enrichment quality, and title-related signals.
+```{r}
 
-```{r Decision Tree}
-# Create decision tree model
-mx_tree_model <- decision_tree(
-  cost_complexity = tune(),
-  tree_depth = tune(),
-  min_n = tune()
+
+# Define decision tree model spec with tunable parameters
+mx_dt_model <- decision_tree(
+  cost_complexity  = tune(),
+  tree_depth       = tune(),
+  min_n            = tune()
 ) %>%
   set_engine("rpart") %>%
   set_mode("classification")
 
-# Build workflow
-mx_tree_workflow <- workflow() %>%
+# Build workflow using same recipe as baseline
+mx_dt_workflow <- workflow() %>%
   add_recipe(mx_recipe) %>%
-  add_model(mx_tree_model)
-
-# Create tuning grid
-mx_tree_grid <- grid_regular(
-  cost_complexity(),
-  tree_depth(),
-  min_n(),
-  levels = 3
+  add_model(mx_dt_model)
+# Define tuning grid
+dt_grid <- grid_regular(
+  cost_complexity(range = c(-4, -1)),
+  tree_depth(range      = c(3, 10)),
+  min_n(range          = c(5, 50)),
+  levels = 4
 )
 
-# Tune decision tree with cross-validation
+# Tune over 5-fold CV folds (reuse mx_folds from baseline)
 set.seed(123)
 
-mx_tree_results <- tune_grid(
-  mx_tree_workflow,
+mx_dt_tune <- tune_grid(
+  mx_dt_workflow,
   resamples = mx_folds,
-  grid = mx_tree_grid,
-  metrics = metric_set(
+  grid      = dt_grid,
+  metrics   = metric_set(
+    yardstick::roc_auc,
+    yardstick::accuracy,
+    yardstick::f_meas
+  )
+)
+
+# Show top 5 configurations ranked by ROC AUC
+mx_dt_tune %>%
+  show_best(metric = "roc_auc", n = 5)
+
+```
+
+
+```{r}
+# Select the best configuration and finalize workflow
+best_dt_params <- select_best(mx_dt_tune, metric = "roc_auc")
+
+mx_dt_final_workflow <- finalize_workflow(mx_dt_workflow, best_dt_params)
+
+# Fit finalized model on full training set
+mx_dt_final_fit <- mx_dt_final_workflow %>%
+  fit(data = mx_training_data)
+
+# View final hyperparameters
+best_dt_params
+
+# Evaluate on cross-validation (training data only — test set still held out)
+mx_dt_cv_results <- fit_resamples(
+  mx_dt_final_workflow,
+  resamples = mx_folds,
+  metrics   = metric_set(
     yardstick::roc_auc,
     yardstick::accuracy,
     yardstick::precision,
@@ -320,87 +347,40 @@ mx_tree_results <- tune_grid(
   )
 )
 
-# Show top-performing tree models based on ROC AUC
-show_best(mx_tree_results, metric = "roc_auc")
-
-# Select best tree based on ROC AUC
-best_tree <- select_best(mx_tree_results, metric = "roc_auc")
-best_tree
-
-# Finalize workflow with best parameters
-final_tree_workflow <- finalize_workflow(
-  mx_tree_workflow,
-  best_tree
-)
-
-# Fit finalized decision tree on training data
-final_tree_fit <- fit(final_tree_workflow, data = mx_training_data)
+collect_metrics(mx_dt_cv_results)
 ```
 
+```{r}
+# Extract the underlying rpart tree object for visualization
+dt_rpart_fit <- mx_dt_final_fit %>%
+  extract_fit_engine()
 
-### Interpretation of Output
-The decision tree model was tuned using cross-validation on the training data, testing different combinations of tree depth, minimum node size, and cost complexity. The best-performing tree achieved a ROC AUC of 0.82, which is higher than the baseline logistic regression ROC AUC of 0.75. This suggests that the decision tree is doing a better job of separating higher-potential MX leads from lower-potential ones.
-
-The selected tree used a tree depth of 8 and a minimum node size of 21, which suggests that lead success depends on multiple interacting factors rather than just one or two variables alone. From a business perspective, this is encouraging because it means the model may be capturing more realistic lead patterns. It also suggests that a decision tree may be a stronger option than the baseline logistic regression for identifying which types of MX leads Marketing and Sales should prioritize.
-
-
-
-```{r Plot Tree}
-# Create a simpler tree model for interpretation
-simple_tree_model <- decision_tree(
-  tree_depth = 3,
-  min_n = 40
-) %>%
-  set_engine("rpart") %>%
-  set_mode("classification")
-
-# Build workflow
-simple_tree_workflow <- workflow() %>%
-  add_recipe(mx_recipe) %>%
-  add_model(simple_tree_model)
-
-# Fit simpler tree
-simple_tree_fit <- fit(simple_tree_workflow, data = mx_training_data)
-
-# Extract fitted tree
-simple_tree_plot_fit <- extract_fit_parsnip(simple_tree_fit)$fit
-
-# Plot simpler tree
+# Plot the decision tree (base rpart plot)
 rpart.plot(
-  simple_tree_plot_fit,
-  type = 3,
-  extra = 104,
-  fallen.leaves = TRUE,
-  roundint = FALSE
+  dt_rpart_fit,
+  type       = 4,
+  extra      = 101,
+  box.palette = "GnBu",
+  shadow.col = "gray",
+  nn         = TRUE,
+  main       = "Decision Tree — MX Lead Success"
 )
+
+# Extract variable importance from the fitted tree
+dt_importance <- dt_rpart_fit$variable.importance %>%
+  enframe(name = "feature", value = "importance") %>%
+  arrange(desc(importance)) %>%
+  slice_head(n = 15)
 ```
 
-#### Interpretation of the plot
+### Interpretation of the Output
 
-This simplified decision tree shows the first few decision rules the model is using to separate stronger MX leads from weaker ones. The first split is based on `Priority 2`, which in the data dictionary refers to a more standard-priority lead rather than a higher-intent lead such as a demo request or contact-us inquiry. In simple terms, the model is first checking whether the lead looks more routine or more engaged. That makes business sense, because lead priority can reflect how ready the prospect may be to move forward.
+The decision tree model achieved a ROC AUC of 0.758 on cross-validation, which is an improvement over the baseline logistic regression (0.709) and is competitive with the regularized logistic regression with interactions (0.794). The model's most important finding is that priority tier is by far the strongest predictor of MX lead success, accounting for more than double the importance of any other variable.
 
-The next important split is `mfg_lowinfo`, which shows whether the manufacturing model information is missing or low quality. This is consistent with the EDA findings, where incomplete enrichment was associated with weaker lead quality. After that, the tree uses `solution_Manufacturing`, which is a dummy variable created from the `solution` field. This does not refer to all MX leads overall. It specifically shows whether the lead is associated with the `Manufacturing` category inside that variable. In the strongest branch of this simplified tree, leads that are **not Priority 2**, have **better manufacturing information**, and are associated with **Manufacturing** end in the most favorable success node. Overall, the plot suggests that stronger MX leads are driven by a combination of **higher engagement**, **better enrichment quality**, and **better business fit**, rather than by only one variable.
+The very first split in the tree is on priority, meaning that before the model considers any account characteristics or campaign information, it immediately separates leads based on their priority designation. Within the higher-priority group, account site function and solution alignment are the next most informative signals, with leads at manufacturing facilities being targeted with a manufacturing solution showing a success rate of roughly 33%, more than double the overall baseline of 13%.
 
-#### What the Boxes in the Tree Mean
+Beyond priority and account type, the tree identifies campaign channel and industry vertical as meaningful secondary signals. Specifically, leads in the Pharma and BioTech industry that were reached through External Demand Generation campaigns showed the highest success concentration in the tree, reaching nearly 59% in one segment. These findings are directly actionable for the Marketing and Sales teams. Rather than treating the full pool of MX leads equally, the model suggests that targeting efforts should first filter on priority tier, then focus on manufacturing accounts with solution alignment, and within that group prioritize Pharma and BioTech leads engaged through demand generation channels. This gives the team a clear, data-backed framework for ranking leads before outreach begins.
 
-Each box in the tree is a final prediction group, and it gives three pieces of information:
-
--   The **top line** shows the predicted class, such as **Successful** or **Not Successful**
--   The **middle numbers** show the estimated probabilities for each class  
-    -   for example, `.34 .66` means about **34% Not Successful** and **66% Successful**
--   The **bottom percentage** shows the share of leads that fall into that box
-
-So if a green box says **Successful / .34 .66 / 4%**, that means:
-
--   the model predicts that group as **Successful**
--   about **66% of leads in that group were successful**
--   and that group represents **4%** of the data in the tree
-
-#### What We Can Infer From This Plot
-
-This plot suggests that the model is finding some practical screening rules for MX leads. Leads that appear more engaged, have more complete manufacturing-related information, and fit the manufacturing product context seem more promising. On the other hand, leads with **Priority 2** or **low-info manufacturing fields** move early into lower-success branches, which supports the EDA finding that weaker enrichment is a negative signal.
-
-At the same time, this plot does **not** give a clean ranking of the exact best job titles. The tree is mainly showing the strongest top-level splits, and in this simplified version, title variables do not appear in the first few branches. That does not mean titles are unimportant. It only means that, in this tree, other variables were stronger early splitters. Because of that, this plot is most helpful for understanding business rules.
 
 ## Random Forest Model
 In this section a random forest model is trained, using both over sampled data and data matching the default class imbalance. 
