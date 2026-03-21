@@ -200,7 +200,7 @@ Additional attempts were made to improve upon the initial logistic regression mo
 ```{r}
 
 
-# --- Data Prep ---
+# Data Prep 
 train_lr <- mx_training_data
 
 train_lr$next_stage_target <- factor(train_lr$next_stage_target)
@@ -209,7 +209,7 @@ levels(train_lr$next_stage_target) <- gsub(" ", "_", levels(train_lr$next_stage_
 # Case weights for imbalance
 case_weights_lr <- ifelse(train_lr$next_stage_target == "Successful", 7, 1)
 
-# --- CV Control ---
+# CV Control 
 cv_control_lr <- trainControl(
   method          = "cv",
   number          = 5,
@@ -334,7 +334,7 @@ mx_dt_final_fit <- mx_dt_final_workflow %>%
 # View final hyperparameters
 best_dt_params
 
-# Evaluate on cross-validation (training data only — test set still held out)
+# Evaluate on cross-validation 
 mx_dt_cv_results <- fit_resamples(
   mx_dt_final_workflow,
   resamples = mx_folds,
