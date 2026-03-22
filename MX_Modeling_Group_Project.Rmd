@@ -1,5 +1,5 @@
 ---
-title: "Modeling Master Control"
+title: "Modeling MasterControl"
 author: "Josh, Joel, Corinn, Gaby"
 date: "2026-02-28"
 format:
@@ -20,11 +20,14 @@ editor:
 ---
 
 # Introduction
-This notebook builds an initial model to help identify which MX leads are more likely to be successful. Using the cleaned dataset from the EDA phase, the goal is to better understand which lead characteristics are associated with progression to SQL, SQO, or Won, so Marketing and Sales can target higher potential leads more effectively.
+
+This notebook builds an initial model to help identify which Mx leads are more likely to be successful.
+Using the cleaned dataset from the EDA phase, the goal is to better understand which lead characteristics are associated with progression to SQL, SQO, or Won, so Marketing and Sales can target higher potential leads more effectively.
 
 ### Load Data
 
-In this section, we load the cleaned modeling-ready dataset,`leads_cleaned_final.rds` that was created during the EDA phase. This gives us a consistent starting point for modeling and allows the notebook to focus on prediction without repeating all of the earlier data cleaning steps.
+In this section, we load the cleaned modeling-ready dataset,`leads_cleaned_final.rds` that was created during the EDA phase.
+This gives us a consistent starting point for modeling and allows the notebook to focus on prediction without repeating all of the earlier data cleaning steps.
 
 ```{r Load Data, include=FALSE}
 library(tidyverse)
@@ -45,13 +48,13 @@ dim(leads_cleaned_final)
 "solution.1" %in% names(leads_cleaned_final)
 ```
 
-
 # Create Modeling Dataset
 
-In this section, we prepare the final dataset that will be used for modeling. Because the business problem is focused on MX targeting, we keep only MX leads, remove fields that should not be used as predictors, and make sure the target variable is labeled clearly for interpretation.
+In this section, we prepare the final dataset that will be used for modeling.
+Because the business problem is focused on Mx targeting, we keep only Mx leads, remove fields that should not be used as predictors, and make sure the target variable is labeled clearly for interpretation.
 
 ```{r Modeling Dataset}
-# Keep MX leads only and remove IDs + original outcome
+# Keep Mx leads only and remove IDs + original outcome
 mx_model_data <- leads_cleaned_final %>%
   filter(solution_rollup == "Mx") %>%
   select(-qal_id, -contact_lead_id, -next_stage_c)
@@ -82,17 +85,22 @@ count(mx_model_data, next_stage_target)
 
 ### Interpretation of Output
 
-The modeling dataset now includes only MX leads, since that is the product line this project is focused on. After removing ID fields, the original outcome column, and the leftover duplicate column, the final MX modeling dataset contains 4,081 rows and 419 columns.
+The modeling dataset now includes only Mx leads, since that is the product line this project is focused on.
+After removing ID fields, the original outcome column, and the leftover duplicate column, the final Mx modeling dataset contains 4,081 rows and 419 columns.
 
-The target variable is also clearly imbalanced. Out of the 4,081 MX leads, 3,552 were not successful and 529 were successful, where successful means the lead progressed to SQL, SQO, or Won. This means only about 13.0% of MX leads reached a successful outcome.
+The target variable is also clearly imbalanced.
+Out of the 4,081 Mx leads, 3,552 were not successful and 529 were successful, where successful means the lead progressed to SQL, SQO, or Won.
+This means only about 13.0% of MX leads reached a successful outcome.
 
-From a business perspective, this tells us that successful MX leads are relatively uncommon, which is consistent with what we found in the EDA. For the marketing team, this is important because it confirms that the current pool of MX leads contains many more low converting leads than high converting ones. Because of that, the goal of modeling is not just to predict the majority group, but to help identify the smaller group of leads with a higher chance of success so targeting can be improved.
-
-
+From a business perspective, this tells us that successful Mx leads are relatively uncommon, which is consistent with what we found in the EDA.
+For the marketing team, this is important because it confirms that the current pool of Mx leads contains many more low converting leads than high converting ones.
+Because of that, the goal of modeling is not just to predict the majority group, but to help identify the smaller group of leads with a higher chance of success so targeting can be improved.
 
 # Train/Test Split
 
-The next step is to split the MX dataset into a training set and a test set. The training set will be used to build the model, and the test set will be used later to check how well the model performs on new data. We use a 70/30 split, and we keep the success rate similar in both groups so the comparison is fair.
+The next step is to split the Mx dataset into a training set and a test set.
+The training set will be used to build the model, and the test set will be used later to check how well the model performs on new data.
+We use a 70/30 split, and we keep the success rate similar in both groups so the comparison is fair.
 
 ```{r Train and Test Split}
 
@@ -124,23 +132,32 @@ bind_rows(
 
 ### Interpretation of Output
 
-The MX dataset was successfully split into a training set with 2,487 rows and a test set with 1,223 rows, which matches the intended 70/30 split. This gives us one dataset to build the model and another separate dataset to evaluate how well the model performs on data it has not seen before.
+The Mx dataset was successfully split into a training set with 2,487 rows and a test set with 1,223 rows, which matches the intended 70/30 split.
+This gives us one dataset to build the model and another separate dataset to evaluate how well the model performs on data it has not seen before.
 
-The balance of successful and not successful leads stayed very similar in both groups. In the training set, 2,487 leads were not successful and 371 were successful, while in the test set, 1,065 leads were not successful and 158 were successful. This is important because it means both datasets reflect the same overall success pattern, giving us a fairer and more reliable way to evaluate whether the model can help identify higher-potential MX leads.
+The balance of successful and not successful leads stayed very similar in both groups.
+In the training set, 2,487 leads were not successful and 371 were successful, while in the test set, 1,065 leads were not successful and 158 were successful.
+This is important because it means both datasets reflect the same overall success pattern, giving us a fairer and more reliable way to evaluate whether the model can help identify higher-potential Mx leads.
 
 # Performance Benchmark
 
-For this project, a useful model should perform better than random guessing and should show a meaningful ability to separate higher-potential MX leads from lower-potential ones. Because the target variable is imbalanced, ROC AUC is one of the most important benchmark metrics. As an initial guideline, a model with ROC AUC around 0.70 or higher would suggest that the model is capturing useful predictive signal.
+For this project, a useful model should perform better than random guessing and should show a meaningful ability to separate higher-potential Mx leads from lower-potential ones.
+Because the target variable is imbalanced, ROC AUC is one of the most important benchmark metrics.
+As an initial guideline, a model with ROC AUC around 0.70 or higher would suggest that the model is capturing useful predictive signal.
 
-At the same time, business usefulness also matters. Even if the model is not perfect, it can still be valuable if it helps Marketing and Sales better prioritize leads that are more likely to progress to SQL, SQO, or Won compared with the current untargeted approach
+At the same time, business usefulness also matters.
+Even if the model is not perfect, it can still be valuable if it helps Marketing and Sales better prioritize leads that are more likely to progress to SQL, SQO, or Won compared with the current untargeted approach
 
 # Modeling
 
 ## Baseline Model
 
-In this section, we build a baseline model using logistic regression. This gives us a simple starting point for predicting whether an MX lead will be successful. Starting with a baseline model is helpful because it gives us an initial benchmark that stronger models can later be compared against.
+In this section, we build a baseline model using logistic regression.
+This gives us a simple starting point for predicting whether an Mx lead will be successful.
+Starting with a baseline model is helpful because it gives us an initial benchmark that stronger models can later be compared against.
 
-For this project, logistic regression is a good first choice because it is easier to interpret than more complex models. Since the business goal is to understand which lead characteristics, such as job title and industry, are associated with higher conversion, a baseline model helps us begin answering that question in a way that is still understandable for the business team.
+For this project, logistic regression is a good first choice because it is easier to interpret than more complex models.
+Since the business goal is to understand which lead characteristics, such as job title and industry, are associated with higher conversion, a baseline model helps us begin answering that question in a way that is still understandable for the business team.
 
 ```{r BaseLine Model}
 # Create cross-validation folds on the training data
@@ -188,15 +205,23 @@ collect_metrics(mx_log_results)
 
 ```
 
-
 ### Interpretation of Output
 
-The baseline logistic regression model ran successfully and produced an initial set of performance metrics using 5-fold cross-validation on the training data. The model achieved an accuracy of 0.85 and a ROC AUC of 0.71. Because the target variable is imbalanced, ROC AUC is especially important here. A value of 0.71 suggests that the model has a reasonable ability to separate leads that are more likely to be successful from those that are less likely to be successful.
+The baseline logistic regression model ran successfully and produced an initial set of performance metrics using 5-fold cross-validation on the training data.
+The model achieved an accuracy of 0.85 and a ROC AUC of 0.71.
+Because the target variable is imbalanced, ROC AUC is especially important here.
+A value of 0.71 suggests that the model has a reasonable ability to separate leads that are more likely to be successful from those that are less likely to be successful.
 
-At this stage, the model is being evaluated only on the training data through cross-validation, while the test set is intentionally saved for later use with the final selected model. This helps protect the test set from influencing model development. Since the baseline ROC AUC is above the initial benchmark of 0.70, the results suggest that the dataset contains useful predictive signal. At the same time, the warnings indicate that logistic regression may not be the most stable final model for this wide dataset, so it should be treated as a starting benchmark that later models can be compared against.
+At this stage, the model is being evaluated only on the training data through cross-validation, while the test set is intentionally saved for later use with the final selected model.
+This helps protect the test set from influencing model development.
+Since the baseline ROC AUC is above the initial benchmark of 0.70, the results suggest that the dataset contains useful predictive signal.
+At the same time, the warnings indicate that logistic regression may not be the most stable final model for this wide dataset, so it should be treated as a starting benchmark that later models can be compared against.
 
 ## Logistic Regression with Interaction combinations
-Additional attempts were made to improve upon the initial logistic regression model using combinations of interactions. As interpretability is necessary, this exlcudes the use of more complex "black-box" methods, necessitating further exploration of simpler modeling options. 
+
+Additional attempts were made to improve upon the initial logistic regression model using combinations of interactions.
+As interpretability is necessary, this exlcudes the use of more complex "black-box" methods, necessitating further exploration of simpler modeling options.
+
 ```{r}
 
 
@@ -268,14 +293,21 @@ lr_model <- train(
 cat("\n--- CV Results (top 5 by ROC) ---\n")
 lr_model$results %>% arrange(desc(ROC)) %>% head(5) %>% print()
 ```
+
 ### Interpretation of Output
-The top model outputs an improved **ROC AUC of .794** . The top performing combinations of hyper parameter values all outperform the previous model which is to be expected. Not a lot of detail will be given at this point on the results as future models are likely to out perform regression models.  
 
-## Decision Tree 
+The top model outputs an improved **ROC AUC of .794** .
+The top performing combinations of hyper parameter values all outperform the previous model which is to be expected.
+Not a lot of detail will be given at this point on the results as future models are likely to out perform regression models.
 
-In this section, a decision tree model is used as a second approach to predict MX lead success. Unlike logistic regression, a decision tree can capture nonlinear patterns and interactions more naturally, while also producing simpler rules that are easier to explain to a business audience.
+## Decision Tree
 
-This is especially useful for this project because the goal is not only to predict success, but also to better understand which types of leads should be prioritized. A decision tree can help translate the data into more practical decision rules around variables such as industry, enrichment quality, and title-related signals.
+In this section, a decision tree model is used as a second approach to predict Mx lead success.
+Unlike logistic regression, a decision tree can capture nonlinear patterns and interactions more naturally, while also producing simpler rules that are easier to explain to a business audience.
+
+This is especially useful for this project because the goal is not only to predict success, but also to better understand which types of leads should be prioritized.
+A decision tree can help translate the data into more practical decision rules around variables such as industry, enrichment quality, and title-related signals.
+
 ```{r}
 
 
@@ -319,7 +351,6 @@ mx_dt_tune %>%
   show_best(metric = "roc_auc", n = 5)
 
 ```
-
 
 ```{r}
 # Select the best configuration and finalize workflow
@@ -375,27 +406,33 @@ dt_importance <- dt_rpart_fit$variable.importance %>%
 
 ### Interpretation of the Output
 
-The decision tree model achieved a ROC AUC of 0.758 on cross-validation, which is an improvement over the baseline logistic regression (0.709) and is competitive with the regularized logistic regression with interactions (0.794). The model's most important finding is that priority tier is by far the strongest predictor of MX lead success, accounting for more than double the importance of any other variable.
+The decision tree model achieved a ROC AUC of 0.758 on cross-validation, which is an improvement over the baseline logistic regression (0.709) and is competitive with the regularized logistic regression with interactions (0.794).
+The model's most important finding is that priority tier is by far the strongest predictor of Mx lead success, accounting for more than double the importance of any other variable.
 
-The very first split in the tree is on priority, meaning that before the model considers any account characteristics or campaign information, it immediately separates leads based on their priority designation. Within the higher-priority group, account site function and solution alignment are the next most informative signals, with leads at manufacturing facilities being targeted with a manufacturing solution showing a success rate of roughly 33%, more than double the overall baseline of 13%.
+The very first split in the tree is on priority, meaning that before the model considers any account characteristics or campaign information, it immediately separates leads based on their priority designation.
+Within the higher-priority group, account site function and solution alignment are the next most informative signals, with leads at manufacturing facilities being targeted with a manufacturing solution showing a success rate of roughly 33%, more than double the overall baseline of 13%.
 
-Beyond priority and account type, the tree identifies campaign channel and industry vertical as meaningful secondary signals. Specifically, leads in the Pharma and BioTech industry that were reached through External Demand Generation campaigns showed the highest success concentration in the tree, reaching nearly 59% in one segment. These findings are directly actionable for the Marketing and Sales teams. Rather than treating the full pool of MX leads equally, the model suggests that targeting efforts should first filter on priority tier, then focus on manufacturing accounts with solution alignment, and within that group prioritize Pharma and BioTech leads engaged through demand generation channels. This gives the team a clear, data-backed framework for ranking leads before outreach begins.
-
+Beyond priority and account type, the tree identifies campaign channel and industry vertical as meaningful secondary signals.
+Specifically, leads in the Pharma and BioTech industry that were reached through External Demand Generation campaigns showed the highest success concentration in the tree, reaching nearly 59% in one segment.
+These findings are directly actionable for the Marketing and Sales teams.
+Rather than treating the full pool of Mx leads equally, the model suggests that targeting efforts should first filter on priority tier, then focus on manufacturing accounts with solution alignment, and within that group prioritize Pharma and BioTech leads engaged through demand generation channels.
+This gives the team a clear, data-backed framework for ranking leads before outreach begins.
 
 ## Random Forest Model
-In this section a random forest model is trained, using both over sampled data and data matching the default class imbalance. 
+
+In this section a random forest model is trained, using both over sampled data and data matching the default class imbalance.
 
 ### OverSampled
 
-Oversampling was used to get the data to a 50/50 class balance split. Then grid search and 5 fold cross validation was used. This process was run iteritavely to test and try and avoid overfitting. 
-
+Oversampling was used to get the data to a 50/50 class balance split.
+Then grid search and 5 fold cross validation was used.
+This process was run iteritavely to test and try and avoid overfitting.
 
 ```{r}
 #drop qal cohort date
 mx_training_data <- mx_training_data %>% select(-qal_cohort_date)
 mx_test_data <- mx_test_data %>% select(-qal_cohort_date)
 ```
-
 
 ```{r}
 #create 50/50 data split
@@ -409,7 +446,6 @@ train_balanced <- train_balanced %>% select(-contact_lead_title)
 train_balanced$next_stage_target <-factor(train_balanced$next_stage_target)
 levels(train_balanced$next_stage_target) <- gsub(" ", "_", levels(train_balanced$next_stage_target))
 ```
-
 
 ```{r}
 #define cv params
@@ -438,8 +474,6 @@ rf_grid <- expand.grid(
 )
 ```
 
-
-
 ```{r}
 #train rf model
 rf_model <- train(
@@ -466,7 +500,6 @@ cv_results <- rf_model$results %>%
 print(cv_results)
 #tree overfitting 
 ```
-
 
 ```{r}
 importance_df <- varImp(rf_model)$importance %>%
@@ -497,11 +530,16 @@ cat(sprintf("\nTest AUC: %.4f\n", auc(roc(mx_test_data$next_stage_target, test_p
 ```
 
 #### Interpretation of Output
-When attempting to use random forest with over sampled data to achieve a 50/50 class balance split, the cross validation and grid search always found the smallest number of terminal nodes to be the best. Initially the cross validation ROC-AUC was unreasonably high, so holdout data was used to verify that in fact the data was over fitting. When running on test data though every time their was a substantial drop off in AUC indicating over fitting, even when trying higher values of terminal nodes.The models all coalesced around AUC of .82 to .83 previous models. Testing this model to confirm it was over fitting did require using the holdout data which would constitute data leakage, given this and the tendency to over fit while not having great performance random forest appears to not be a good fit for this data. 
+
+When attempting to use random forest with over sampled data to achieve a 50/50 class balance split, the cross validation and grid search always found the smallest number of terminal nodes to be the best.
+Initially the cross validation ROC-AUC was unreasonably high, so holdout data was used to verify that in fact the data was over fitting.
+When running on test data though every time their was a substantial drop off in AUC indicating over fitting, even when trying higher values of terminal nodes.The models all coalesced around AUC of .82 to .83 previous models.
+Testing this model to confirm it was over fitting did require using the holdout data which would constitute data leakage, given this and the tendency to over fit while not having great performance random forest appears to not be a good fit for this data.
 
 ### Standard Class Distribution
 
-Next a random forest model was trained without oversampling (class imbalance), to avoid data leakage this time much higher terminal node values were chosen for grid search. Similar to before 5 fold cross validation was performed. 
+Next a random forest model was trained without oversampling (class imbalance), to avoid data leakage this time much higher terminal node values were chosen for grid search.
+Similar to before 5 fold cross validation was performed.
 
 ```{r}
 # Use original training data with class weights instead of oversampling
@@ -539,8 +577,6 @@ rf_grid <- expand.grid(
 )
 ```
 
-
-
 ```{r}
 
 # Calculate per-row weights based on class
@@ -573,11 +609,14 @@ print(cv_results)
 ```
 
 #### Interpretation of Output
-When attempting to provide grid search parameters that would avoid overfitting ROC-AUC dropped substantially, and perfomed even worse then the prior trained model. Given the points discussed before it can be concluded that random forest is not a good fit for this data. 
+
+When attempting to provide grid search parameters that would avoid overfitting ROC-AUC dropped substantially, and perfomed even worse then the prior trained model.
+Given the points discussed before it can be concluded that random forest is not a good fit for this data.
 
 ## XG Boost
-A standard XGBoost model was trained, given XGBoost lacks interpretability this model is evaluated and will be contrasted with Explainable Boosting Machine next, which performs similar modeling but by design allows for explainability. If XGBoost has markedly better perofrmance over EBM, future steps will be taken to help explain the model decisions. 
 
+A standard XGBoost model was trained, given XGBoost lacks interpretability this model is evaluated and will be contrasted with Explainable Boosting Machine next, which performs similar modeling but by design allows for explainability.
+If XGBoost has markedly better perofrmance over EBM, future steps will be taken to help explain the model decisions.
 
 ```{r}
 # XGBoost version — matching your existing RF pipeline
@@ -640,7 +679,6 @@ xgb_model <- train(
 
 ```
 
-
 ```{r}
 # Fix test data factor levels to match training
 mx_test_data$next_stage_target <- factor(mx_test_data$next_stage_target)
@@ -653,7 +691,6 @@ levels(mx_test_data$next_stage_target) <- gsub(" ", "_", levels(mx_test_data$nex
 #cat(sprintf("\nTest AUC: %.4f\n", pROC::auc(pROC::roc(mx_test_data$next_stage_target, test_probs_xgb,
                                                         #levels = c("Not_Successful", "Successful")))))
 ```
-
 
 ```{r}
 # --- Best Hyperparameters ---
@@ -687,20 +724,26 @@ cat(sprintf("\nTest AUC: %.4f\n", pROC::auc(pROC::roc(mx_test_data$next_stage_ta
 ```
 
 #### Interpretation of Output
-This had similar performance to random forest with **AUC ROC of .82**, the model has a good balance of specificity being able to correctly identify 76% of leads that wouldn't progress and sensitivity being able to correctly identify 77% of real successful leads. We can see the top feature importance, which tells us what the most important feature is and then a score for the next most important relative to that. 
 
+This had similar performance to random forest with **AUC ROC of .82**, the model has a good balance of specificity being able to correctly identify 76% of leads that wouldn't progress and sensitivity being able to correctly identify 77% of real successful leads.
+We can see the top feature importance, which tells us what the most important feature is and then a score for the next most important relative to that.
 
 ## Explainable Boosting Machine (EBM)
 
-In this section, we fit an Explainable Boosting Machine (EBM) as a third modeling approach. EBMs are a type of Generalized Additive Model with pairwise interactions (GA²M) that use cyclic gradient boosting to learn shape functions for each feature. Unlike black-box models, EBMs are fully interpretable — each feature's contribution can be visualized independently — while still achieving accuracy competitive with ensemble methods like random forests and gradient boosting.
+In this section, we fit an Explainable Boosting Machine (EBM) as a third modeling approach.
+EBMs are a type of Generalized Additive Model with pairwise interactions (GA²M) that use cyclic gradient boosting to learn shape functions for each feature.
+Unlike black-box models, EBMs are fully interpretable — each feature's contribution can be visualized independently — while still achieving accuracy competitive with ensemble methods like random forests and gradient boosting.
 
-EBMs are especially useful for this project because they can show exactly *how* each lead characteristic (industry, territory, title role, enrichment quality) relates to conversion probability, which directly supports the business goal of understanding what makes a strong MX lead.
+EBMs are especially useful for this project because they can show exactly *how* each lead characteristic (industry, territory, title role, enrichment quality) relates to conversion probability, which directly supports the business goal of understanding what makes a strong Mx lead.
 
-This section uses the `ebm` R package, which wraps the Python `interpret` library via `reticulate`. The EBM section is fully self-contained — it independently loads data, joins cluster labels from the EDA phase, and creates its own train/test split using the same seed and method as the shared pipeline to ensure identical row partitions.
+This section uses the `ebm` R package, which wraps the Python `interpret` library via `reticulate`.
+The EBM section is fully self-contained — it independently loads data, joins cluster labels from the EDA phase, and creates its own train/test split using the same seed and method as the shared pipeline to ensure identical row partitions.
 
 ```{r EBM Setup, include=FALSE}
 library(reticulate)
 use_virtualenv("r-ebm", required = TRUE)
+virtualenv_create("r-ebm")
+virtualenv_install("r-ebm", packages = c("interpret", "numpy", "scikit-learn"))
 library(ebm)
 library(patchwork)
 ```
@@ -750,9 +793,12 @@ dim(ebm_test)
 
 ### Interpretation of EBM Data Prep
 
-The EBM dataset is built independently from the shared pipeline to avoid introducing cluster-label NAs into the existing GLM and decision tree recipes. Three engineered features from the EDA clustering phase — `account_cluster`, `title_cluster`, and `mx_cluster` — are joined onto the base modeling data. For `title_cluster`, rows where the lead title was flagged as low-info (and therefore never clustered) have their NA replaced with an explicit `"No_Title_Info"` factor level so that EBM can visualize the shape function for that group.
+The EBM dataset is built independently from the shared pipeline to avoid introducing cluster-label NAs into the existing GLM and decision tree recipes.
+Three engineered features from the EDA clustering phase — `account_cluster`, `title_cluster`, and `mx_cluster` — are joined onto the base modeling data.
+For `title_cluster`, rows where the lead title was flagged as low-info (and therefore never clustered) have their NA replaced with an explicit `"No_Title_Info"` factor level so that EBM can visualize the shape function for that group.
 
-The train/test split uses the same `set.seed(123)` and `caret::createDataPartition()` call as the shared pipeline, which guarantees identical row selection since the function depends only on the target vector and the seed. This means the EBM is evaluated on exactly the same holdout set as the GLM and decision tree, making AUC comparisons fair.
+The train/test split uses the same `set.seed(123)` and `caret::createDataPartition()` call as the shared pipeline, which guarantees identical row selection since the function depends only on the target vector and the seed.
+This means the EBM is evaluated on exactly the same holdout set as the GLM and decision tree, making AUC comparisons fair.
 
 ```{r EBM Fit}
 # Fit Explainable Boosting Machine
@@ -762,9 +808,12 @@ print(mx_ebm)
 
 ### Interpretation of EBM Fit
 
-The `ebm()` call fits a GA²M model using cyclic gradient boosting. Each feature gets its own smooth shape function (main effect), and the model also automatically detects and fits the most important pairwise interaction terms. The `log_loss` objective is appropriate for binary classification — it optimizes the model to encourage well-calibrated predicted probabilities rather than just class labels.
+The `ebm()` call fits a GA²M model using cyclic gradient boosting.
+Each feature gets its own smooth shape function (main effect), and the model also automatically detects and fits the most important pairwise interaction terms.
+The `log_loss` objective is appropriate for binary classification — it optimizes the model to encourage well-calibrated predicted probabilities rather than just class labels.
 
-The printed summary shows the number of main effects and interaction terms retained, along with the intercept. Unlike the GLM (which required dummy encoding via `step_dummy`) or the decision tree (which splits on one variable at a time), the EBM learns flexible nonlinear relationships for each feature while remaining fully interpretable.
+The printed summary shows the number of main effects and interaction terms retained, along with the intercept.
+Unlike the GLM (which required dummy encoding via `step_dummy`) or the decision tree (which splits on one variable at a time), the EBM learns flexible nonlinear relationships for each feature while remaining fully interpretable.
 
 ```{r EBM Predictions}
 # Generate predictions on the held-out test set
@@ -777,13 +826,15 @@ table("Observed" = ebm_test$next_stage_target, "Predicted" = ebm_labels)
 
 ### Interpretation of EBM Predictions
 
-The confusion matrix shows how the EBM classifies test-set leads compared to their actual outcomes. The key metrics to watch are:
+The confusion matrix shows how the EBM classifies test-set leads compared to their actual outcomes.
+The key metrics to watch are:
 
-- **True Positives (Successful predicted as Successful):** how many real successes the model catches
-- **False Negatives (Successful predicted as Not Successful):** how many real successes the model misses
-- **False Positives (Not Successful predicted as Successful):** leads the model incorrectly flags as promising
+-   **True Positives (Successful predicted as Successful):** how many real successes the model catches
+-   **False Negatives (Successful predicted as Not Successful):** how many real successes the model misses
+-   **False Positives (Not Successful predicted as Successful):** leads the model incorrectly flags as promising
 
-Because the target is imbalanced (~12.9% success rate), raw accuracy can be misleading — a model that predicts "Not Successful" for every lead would still be ~87% accurate. The calibration plot in the next section provides a better view of whether the predicted probabilities are reliable.
+Because the target is imbalanced (\~12.9% success rate), raw accuracy can be misleading — a model that predicts "Not Successful" for every lead would still be \~87% accurate.
+The calibration plot in the next section provides a better view of whether the predicted probabilities are reliable.
 
 ```{r EBM Calibration}
 library(rms)
@@ -798,9 +849,11 @@ rms::val.prob(
 
 ### Interpretation of EBM Calibration
 
-The calibration plot compares the model's predicted probabilities against the actual observed success rates. A well-calibrated model should have points falling close to the 45-degree diagonal line — meaning that when the model says a lead has a 20% chance of success, roughly 20% of those leads actually succeed.
+The calibration plot compares the model's predicted probabilities against the actual observed success rates.
+A well-calibrated model should have points falling close to the 45-degree diagonal line — meaning that when the model says a lead has a 20% chance of success, roughly 20% of those leads actually succeed.
 
-Key statistics reported on the plot include the C-statistic (concordance index, equivalent to ROC AUC) and the Brier score. The C-statistic can be directly compared to the GLM's ROC AUC of 0.79 and the decision tree's ROC AUC of 0.82 to see whether the EBM provides additional predictive lift.
+Key statistics reported on the plot include the C-statistic (concordance index, equivalent to ROC AUC) and the Brier score.
+The C-statistic can be directly compared to the GLM's ROC AUC of 0.79 and the decision tree's ROC AUC of 0.82 to see whether the EBM provides additional predictive lift. 
 
 ```{r EBM Global Explanation}
 # Top 15 most important terms (main effects + interactions)
@@ -815,11 +868,14 @@ mx_ebm$term_names_[grepl("&", mx_ebm$term_names_)]
 
 ### Interpretation of EBM Global Explanation
 
-The term importance plot ranks each feature (and interaction term) by its mean absolute contribution to the predicted log-odds of success. Features at the top of the chart have the largest overall influence on whether a lead is predicted as successful or not.
+The term importance plot ranks each feature (and interaction term) by its mean absolute contribution to the predicted log-odds of success.
+Features at the top of the chart have the largest overall influence on whether a lead is predicted as successful or not.
 
-The shape function plot for `acct_territory_rollup` shows exactly how each territory category shifts the prediction — for example, whether Americas-based leads get a positive boost while APAC leads get a negative one. Unlike a logistic regression coefficient (which gives a single number), the EBM shape function can show nonlinear and non-monotonic relationships.
+The shape function plot for `acct_territory_rollup` shows exactly how each territory category shifts the prediction — for example, whether Americas-based leads get a positive boost while APAC leads get a negative one.
+Unlike a logistic regression coefficient (which gives a single number), the EBM shape function can show nonlinear and non-monotonic relationships.
 
-The listed pairwise interactions reveal which feature combinations the model found to be jointly predictive beyond their individual effects. These interactions can surface insights that single-variable analyses miss — for instance, a specific industry × territory combination that converts unusually well.
+The listed pairwise interactions reveal which feature combinations the model found to be jointly predictive beyond their individual effects.
+These interactions can surface insights that single-variable analyses miss — for instance, a specific industry × territory combination that converts unusually well.
 
 ```{r EBM Local Explanation}
 # Local explanation for a single test-set lead
@@ -830,7 +886,8 @@ plot(mx_ebm, local = TRUE, X = newx, y = newy)
 
 ### Interpretation of EBM Local Explanation
 
-The local explanation waterfall plot decomposes the prediction for a single lead into the contributions from each feature. Starting from the intercept (the baseline log-odds of success), each bar shows how much a specific feature pushes the prediction up (toward Successful) or down (toward Not Successful).
+The local explanation waterfall plot decomposes the prediction for a single lead into the contributions from each feature.
+Starting from the intercept (the baseline log-odds of success), each bar shows how much a specific feature pushes the prediction up (toward Successful) or down (toward Not Successful).
 
 This is especially useful for the business team because it can answer questions like: *"Why did the model score this particular lead highly?"* or *"What would need to change about this lead for it to be predicted as successful?"* Each local explanation is fully faithful to the model — it is not an approximation — because EBMs are additive by design.
 
@@ -843,16 +900,478 @@ reticulate::py_save_object(mx_ebm, filename = "data/mx_ebm.pkl")
 colnames(predict(mx_ebm, newdata = ebm_test[1:3, ]))
 ```
 
+## More EBM Plots
 
+```{r edm plot shape}
+#
+plot(mx_ebm, n_terms = 15)   # global feature importance
 
+#inspect individual shape functions for your key variables
+plot(mx_ebm, term = "priority")
+plot(mx_ebm, term = "acct_target_industry")
+plot(mx_ebm, term = "acct_territory_rollup")
+plot(mx_ebm, term = "acct_tier_rollup")
+plot(mx_ebm, term = "last_tactic_campaign_channel")
+plot(mx_ebm, term = "title_cluster")
 
+```
 
+### Job Title Cluster Labels
 
+Used to clarify the title clusters for EBM shape function - title cluster plot.
 
+```{r job title clusters}
+#title cluster labels
+readRDS("data/leads_cleaned_final.rds") %>%
+  left_join(cluster_labels, by = "qal_id") %>%
+  filter(solution_rollup == "Mx") %>%
+  filter(!is.na(title_cluster)) %>%
+  select(contact_lead_title, title_cluster) %>%
+  count(title_cluster, contact_lead_title) %>%
+  group_by(title_cluster) %>%
+  slice_max(n, n = 5) %>%
+  arrange(title_cluster) %>%
+  print(n = Inf)
+```
 
+**Plot 1 - Priority** This is the most important feature with a mean absolute score of \~.16.
 
+**Plot 2 - Priority Shape Function** P1 - Webinar Demo and Priority 2 are the most negative, meaning the model penalizes these leads below baseline.
+Leads who register for a webinar that become Mx leads don't convert well.
+This could be because webinar attract a broader and less ready to by audience.
+P1 - Contact Us, P1 - Video Demo, and P1 - Live Demo are positive, \~.4-.5.
+P1 - Discount Offer and Low Info have the highest scores, \~.75-.78 but with wide confidence intervals, meaning few examples of these leads.
 
+**Plot 3 - Industry Shape Function** Scores are relatively tight and close to zero, meaning that industry alone is not a strong indicator once other variables are controlled for.
+Medical Device and Blood & Biologics are slightly positive, \~.02.
+Low Info being the most negative at \~-.09, having an unknown industry for a lead is a bag signal of conversion.
+Compared to the raw data conversion rates, the model is telling us that industry matters less once we account for other features in the model.
 
+**Plot 4 - Territory Shape Function** Americas is the only positive territory, \~.035.
+Antarctica and Low Info are negative with wide uncertainty.
+Americas being the only positive score, this is the only territory the model views favorable for Mx conversion.
 
+**Plot 5 - Account Tier Shape Function** Small account tier is slightly positive, \~.035, but Low Info has the highest score of \~.47 and a wide confidence internal.
+Having no account tier information, the model scores it higher on average but with little observations/cases of Low Info in the data set the estimate is unreliable.
+Small is the only positive tier, but with modest effects.
 
+**Plot 6 - Campaign Channel Shape Function** There are important findings here that contradict what the raw conversion rates suggest.
+Online Ads is positive, \~.07.
+This was a weaker signal in the raw conversion rate of only .18.
+SEO is near zero and relatively neutral, not as the raw conversion rates implied.
+Direct/Inbound and Events, both with a score of \~.15, are the strongest positive channels.
 
+**Plot 7 - Job Title Cluster** Cluster 7 has the highest positive score of \~.15.
+The job titles in this cluster include: founder, director of quality, manager production, manager engineering, plant manager, production manager.
+These job titles are people who are directly involved in the production and manufacturing processes and closest to the manufacturing floor.
+They feel the pain of quality and manufacturing directly.
+This would indicate a strong conversion of Mx product.
+Cluster 1 is the most negative with a score of \~-.19.
+This cluster has a wider interval, meaning fewer observations, but consistently bad.
+The job titles associated with this cluster are: director quality assurance, director quality, associate direction quality, quality specialist.
+Quality assurance leads may be be the wrong person being contacted for the Mx product.
+
+**Optimal Model**
+The EBM model having a ROC-AUC of .86, this makes the best model predicting conversion.
+
+## Ideal Customer Profile
+
+Because the EBM was the best performing model, we used the EBM shape function scores of each category to create the ideal customer profile and the customer profile MasterControl should avoid.
+
+```{r ideal customer profile}
+#ideal customer profile table
+
+icp_table <- tibble(
+  Attribute     = c("Priority", "Industry", "Territory", 
+                    "Account Tier", "Channel", "Job Title"),
+  `Target Profile` = c(
+    "P1 – Contact Us, P1 – Video/Live Demo",
+    "Medical Device, Blood & Biologics",
+    "Americas",
+    "Small",
+    "Direct/Inbound, Events",
+    "Founders, Production/Plant/Engineering Managers"
+  ),
+  `EBM Score (Target)` = c(
+    "+0.40 to +0.50",
+    "+0.02",
+    "+0.035",
+    "+0.035",
+    "+0.15",
+    "+0.15"
+  ),
+  `Avoid` = c(
+    "P1 – Webinar Demo, Priority 2",
+    "Non-Life Science, Unknown",
+    "APAC & Oceania, Japan",
+    "Large",
+    "Email, External Demand Gen",
+    "QA Directors, Quality Specialists (Route to QX)"
+  ),
+  `EBM Score (Avoid)` = c(
+    "-0.10 to -0.12",
+    "-0.03 to -0.09",
+    "-0.07",
+    "-0.03",
+    "-0.07 to -0.09",
+    "-0.19"
+  )
+)
+icp_table
+
+```
+
+## Raw Data - Conversion Rates Per Category
+
+```{r conversion rates}
+#load raw data and filter mx leads only
+mx_raw <-  read.csv("data/Mastercontrol QAL Performance.csv") %>%
+  filter(solution_rollup == "Mx") %>%
+  mutate(converted = next_stage__c %in% c("SQL", "SQO", "Won"))
+
+#industry conversion rates
+mx_raw %>%
+  group_by(acct.target.industry) %>%
+  summarise(conversion_rate = mean(converted), n = n()) %>%
+  arrange(desc(conversion_rate))
+
+#manufacturing model conversion rates
+mx_raw %>%
+  group_by(acct.manufacturing.model) %>%
+  summarise(conversion_rate = mean(converted), n = n()) %>%
+  arrange(desc(conversion_rate))
+
+#priority converesion rates
+mx_raw %>%
+  group_by(Priority) %>%
+  summarise(conversion_rate = mean(converted), n = n()) %>%
+  arrange(desc(conversion_rate))
+
+#territory conversion rates
+mx_raw %>%
+  group_by(acct.territory.rollup) %>%
+  summarise(conversion_rate = mean(converted), n = n()) %>%
+  arrange(desc(conversion_rate))
+
+#account tier conversion rates
+mx_raw %>%
+  group_by(acct.tier.rollup) %>%
+  summarise(conversion_rate = mean(converted), n = n()) %>%
+  arrange(desc(conversion_rate))
+
+#campaign channel conversion rates
+mx_raw %>%
+  group_by(last.tactic.campaign.channel) %>%
+  summarise(conversion_rate = mean(converted), n = n()) %>%
+  arrange(desc(conversion_rate))
+
+```
+
+## Hypothetical Scenarios
+
+In this section, we demonstrate the practical utility of the EBM model by scoring a single, fully specified hypothetical lead – a prospect that the sales team might realistically reach out to.
+Rather than pulling an anonymous row from the test set, we construct a lead from scratch using field values that are plausible for a strong Mx prospect, and then ask the model: *what is the probability this lead converts?*
+
+### Hypothetical Scenario 1 - Sarah
+
+**Profile rationale:**
+(using the raw data conversion rates)
+
+-   Medical Device industry → 2nd-highest Mx conversion rate (16.6 %) with industry label
+
+-   In-House manufacturing model → direct, hands-on manufacturing operation
+
+-   Priority 1 – Contact Us → high-intent inbound signal (29.9 % conversion)
+
+-   Americas territory → largest Mx territory, highest raw conversion (14.6 %)
+
+-   Small account tier → highest tier conversion rate (16.3 %)
+
+-   SEO channel → top-performing channel for Mx (26.7 % conversion)
+
+-   Job Title → production manager; senior decision-maker with direct authority over manufacturing and production systems
+
+```{r hypothetical-scenario}
+#hypothetical lead
+set.seed(123)
+template_row <- ebm_test[sample(nrow(ebm_test), 1), ]
+
+#building the lead row
+sarah_lead <- template_row %>%
+  mutate(
+    #account characteristics
+    acct_target_industry        = "Medical Device",
+    acct_manufacturing_model    = "In-House",
+    acct_territory_rollup       = "Americas",
+    acct_tier_rollup            = "Small",
+    acct_primary_site_function  = "Implantable devices",
+    #engagement and campaign signals
+    priority                    = "P1 - Contact Us",
+    last_tactic_campaign_channel = "SEO",
+    title_cluster               = 7
+  )
+
+#predict
+sarah_probs <- predict(mx_ebm, newdata = sarah_lead)
+
+#probabilities
+sarah_p_success     <- round(sarah_probs[1, 2], 4)   # P(Successful)
+sarah_p_not_success <- round(sarah_probs[1, 1], 4)   # P(Not Successful)
+
+#return details
+tibble(
+  Attribute = c("Industry", "Mfg Model", "Territory", "Tier", 
+                "Priority", "Channel", "Title Cluster"),
+  Value     = c(
+    sarah_lead$acct_target_industry,
+    sarah_lead$acct_manufacturing_model,
+    sarah_lead$acct_territory_rollup,
+    sarah_lead$acct_tier_rollup,
+    sarah_lead$priority,
+    sarah_lead$last_tactic_campaign_channel,
+    as.character(sarah_lead$title_cluster)
+  )
+)
+
+#compare to baseline mx conversion rate
+baseline_mx_rate <- mean(
+  ebm_test$next_stage_target == "Successful",
+  na.rm = TRUE
+)
+
+#calculate lift over baseline conversion rate
+lift_over_baseline <- sarah_p_success / baseline_mx_rate
+
+#sarah prediction summary table
+tibble(
+  Metric = c("P(Successful)", "P(Not Successful)", 
+             "Baseline MX Conversion Rate", "Lift over Baseline"),
+  Value  = c(
+    sprintf("%.1f %%", sarah_p_success     * 100),
+    sprintf("%.1f %%", sarah_p_not_success * 100),
+    sprintf("%.1f %%", baseline_mx_rate    * 100),
+    sprintf("%.2fx",   sarah_p_success / baseline_mx_rate)
+  )
+)
+
+```
+
+### Interpretation of Hypothetical Scenario - Sarah
+
+The model returns a **predicted conversion probability of `r sprintf("%.1f %%", sarah_p_success * 100)`**, compared to the baseline Mx conversion rate of approximately **`r sprintf("%.1f %%", baseline_mx_rate * 100)`**.
+This represents a lift of roughly **`r round(lift_over_baseline, 1)`× over the average Mx lead**.
+
+This outcome is consistent with the EBM model shape functions:
+
+-   **High-intent priority signals** (P1 – Contact Us) are among the strongest positive drivers of Mx conversion.
+-   **Medical Device** is the second-highest converting Mx industry after Blood & Biologics.
+-   **SEO and Direct/Inbound channels** consistently surface leads with higher purchase intent.
+-   **Small account tier** has the highest Mx conversion rate (\~16 %), likely because smaller companies have shorter procurement cycles.
+-   **Americas territory** accounts for the largest share of Mx leads and the highest raw conversion count.
+-   **Title Cluster** being labeled as cluster 7 assigns Sarah to under a job title under
+
+From a business perspective, a lead like Sarah is precisely the type of profile that MasterControl's sales team should prioritize for Mx outreach.
+She represents an ideal intersection of high engagement, the right product fit, and favorable account characteristics leading to canidates similar to her, high converting to the Mx product.
+
+### Hypothetical Scenario 2 - David
+
+We ran a second hypothetical scenario in the model that is a lead with different job demographics to show contrast between two different converting leads.
+
+**Profile rationale (bottom-converting attributes from mx_raw analysis):**
+
+-   Unknown industry → lowest Mx conversion rate
+
+-   Services / Consulting → low conversion (not a manufacturing operation)
+
+-   No Priority → no high-intent engagement signal
+
+-   APAC & Oceania → lowest converting territory
+
+-   Large account tier → lowest tier conversion rate (\~7.2%)
+
+-   Online Ads channel → lower intent than inbound/SEO
+
+-   Job Title → quality assurance director
+
+```{r hypothetical scenario david}
+#hypothetical scenario - david
+set.seed(42)
+template_row_low <- ebm_test[sample(nrow(ebm_test), 1), ]
+
+david_lead <- template_row_low %>%
+  mutate(
+    #account characteristics
+    acct_target_industry        = "Unknown",
+    acct_manufacturing_model    = "Services / Consulting",
+    acct_territory_rollup       = "APAC & Oceania",
+    acct_tier_rollup            = "Large",
+    acct_primary_site_function  = "Non-manufacturing organization",
+
+    #engagement and campaign signals
+    priority                     = "No Priority",
+    last_tactic_campaign_channel = "Online Ads",
+    title_cluster               = 1
+  )
+
+#score with ebm
+david_probs <- predict(mx_ebm, newdata = david_lead)
+
+david_p_success     <- round(david_probs[1, 2], 4)
+david_p_not_success <- round(david_probs[1, 1], 4)
+
+#return details
+tibble(
+  Attribute = c("Industry", "Mfg Model", "Territory", "Tier",
+                "Priority", "Channel", "Title Cluster"),
+  Value     = c(
+    david_lead$acct_target_industry,
+    david_lead$acct_manufacturing_model,
+    david_lead$acct_territory_rollup,
+    david_lead$acct_tier_rollup,
+    david_lead$priority,
+    david_lead$last_tactic_campaign_channel,
+    as.character(david_lead$title_cluster)
+  )
+)
+
+#david prediction summary table
+tibble(
+  Metric = c("P(Successful)", "P(Not Successful)",
+             "Baseline MX Conversion Rate", "Lift over Baseline"),
+  Value  = c(
+    sprintf("%.1f %%", david_p_success     * 100),
+    sprintf("%.1f %%", david_p_not_success * 100),
+    sprintf("%.1f %%", baseline_mx_rate    * 100),
+    sprintf("%.2fx",   david_p_success / baseline_mx_rate)
+  )
+)
+
+```
+
+### Interpretation of Hypothetical Scenario 2 - David
+
+To show contract with the high performing lead, we added a lead with a complete opposite ideal lead profile and ran it through the model to get conversion rate prediction for the lead.
+
+The model returns a **predicted conversion probability of `r sprintf("%.1f %%", david_p_success * 100)`**, compared to the baseline Mx conversion rate of approximately **`r sprintf("%.1f %%", baseline_mx_rate * 100)`**.
+This represents a lift of roughly **`r round(david_p_success / baseline_mx_rate, 1)`× the average Mx lead**,  meaning the model views David as a significantly below-average prospect/lead.
+
+This outcome is consistent with both the raw conversion rates observed in the MasterControl dataset and what the EBM shape functions learned:
+
+-   **No Priority** in the raw conversion rates, the leads with no priority signal convert well below average rates. In the EBM shape function, the No Priority category has a near-zero to slightly positive score, but lacks strong positive signal compared to P1- Contact Us or P1- Live Demo.
+-   **Unknown industry** receives one of the most negative scores in the industry shape function (\~-0.09), indicating the model penalizes leads where industry cannot be identified.
+-   **Online Ads channel** appears slightly positive in the EBM shape function, but the confidence interval is wide, meaning the model has low certainty. It does not provide the strong inbound intent signal of Direct/Inbound or Events, which are the top-performing campaign channels in the model.
+-   **Large account tier** is slightly negative in the EBM shape function, consistent with the raw data showing large accounts convert at only \~7% for Mx — likely due to longer procurement cycles, more stakeholders, and more work to switch over from their existing platform/service.
+-   **APAC & Oceania territory** receives a negative score (\~-0.07) in the territory shape function, making it one of the weakest territories for Mx conversion alongside Japan. Only Americas carries a reliably positive territory signal.
+-   **Job Title Cluster** being labeled 1 due to David's job title being Quality Assurance Director.The model has learned that these job titles are lower converting and not the best leads to contact.
+
+From a business perspective, David represents the type of profile that MasterControl's sales team should deprioritize for Mx outreach.
+His combination of low engagement signals, an unidentifiable account, a non-manufacturing business model, and an unfavorable territory makes him a low converting candidate. Rather than direct sales outreach, leads matching David's profile may be better served through lower-cost nurture campaigns until a stronger engagement signal develops.
+
+## Synthetic Cost Table Analysis
+
+In this section, we build a cost-benefit table that evaluates the economic value of deploying the EBM model at different decision thresholds.
+The core idea is: the model generates a probability score for each lead, and the sales team decides which leads to pursue based on a probability cutoff.
+A higher cutoff means chasing only the most confident predictions (fewer outreach touches, but more targeted); a lower cutoff means casting a wider net (more outreach, but more false positives).
+
+By estimating revenue and cost per threshold, we can identify the estimated optimal operating point for the business.
+
+**Key Values:**
+
+| Parameter | Value | Source |
+|-----------------------------|------------------|--------------------------|
+| Average Mx product revenue (proxy) | \$70,000 | Provided (Qx product cost) |
+| Estimated cost per QAL outreach | \$100-\$1000 | Sales rep time + campaign cost |
+| Probability Thresholds | .1-.7 | Using EBM Predictions |
+
+```{r cost table}
+#assumptions
+revenue_per_conversion <- 70000  # average MX deal value ($70K proxy from Qx)
+outreach_costs         <- seq(100, 1000, by = 100)  # $100 to $1,000 in $100 increments
+
+#candidate decision thresholds on P(Successful)
+thresholds <- seq(0.10, 0.7, by = 0.05)
+
+#utilizing EBM predictions on held-out test set
+df_cost <- tibble(
+  truth     = ebm_test$next_stage_target,
+  p_success = predict(mx_ebm, newdata = ebm_test)[, 2L]
+)
+
+#function: one row of economics per threshold + cost combination
+cost_row <- function(t, cost_per_outreach) {
+  #pursue leads with predicted success probability at or above t
+  pursue <- df_cost$p_success >= t
+
+  pursue_rate <- mean(pursue)
+
+  #expected counts per 1,000 leads
+  pursued_1000       <- 1000 * pursue_rate
+  conversions_1000   <- 1000 * mean(pursue & df_cost$truth == "Successful")
+  no_conversion_1000 <- 1000 * mean(pursue & df_cost$truth == "Not Successful")
+
+  #economics per 1,000 leads
+  expected_revenue_1000 <- conversions_1000 * revenue_per_conversion
+  expected_cost_1000    <- pursued_1000     * cost_per_outreach
+  net_value_1000        <- expected_revenue_1000 - expected_cost_1000
+
+  tibble(
+    cost_per_outreach          = cost_per_outreach,
+    p_success_threshold        = t,
+    pursued_per_1000           = round(pursued_1000,         1),
+    conversions_per_1000       = round(conversions_1000,     1),
+    no_conversion_per_1000     = round(no_conversion_1000,   1),
+    expected_revenue_1000      = round(expected_revenue_1000, 0),
+    expected_cost_1000         = round(expected_cost_1000,    0),
+    net_value_1000             = round(net_value_1000,        0)
+  )
+}
+
+#build cost table across all threshold + cost combinations
+ebm_cost_table <- expand.grid(
+  t                = thresholds,
+  cost_per_outreach = outreach_costs
+) |>
+  purrr::pmap_dfr(~ cost_row(..1, ..2)) |>
+  arrange(cost_per_outreach, p_success_threshold)
+
+#show full table
+ebm_cost_table
+
+#best threshold per outreach cost level
+best_threshold_by_cost <- ebm_cost_table |>
+  group_by(cost_per_outreach) |>
+  slice_max(net_value_1000, n = 1) |>
+  ungroup() |>
+  arrange(cost_per_outreach)
+
+best_threshold_by_cost
+```
+
+## Cost Table Interpretation
+
+-   **Cost Per Outreach**: Cost levels ranging from \$100-\$1000. The cost can be sales rep time + campaign cost. Dependent on how MasterControl defines their cost for employee and outreach methods.
+-   **Probability Success Threshold**: Probability of success across different thresholds ranging from .1-.7 probability.
+-   **Pursued Per 1000**: Pursue leads with predicted success probability at or above t.
+-   **Conversions Per 1000**: Leads that convert to Mx product per 1000 leads.
+-   **No Conversions Per 1000**: Leads that did not conver to Mx product per 1000 leads.
+-   **Expected Revenue Per 1000**: Revenue gained per 1000 leads at each cost and probability thresholds (total contract value \* conversions per 1000)
+-   **Expected Cost Per 1000**: Expected cost (pursed per 1000 \* cost per outreach)
+-   **Net Value Per 1000**: The net value gained per 1000 leads (expected revenue per 1000 - expected cost per 1000)
+
+The best threshold table returns the max **Net Value Per 1000** from each **Cost Per Outreach** level and **Probability of Success** threshold.
+The optimal probability threshold per this table is .1 probability of success.
+Lowering the probability threshold allows more false positives to be contacted, those that are predicted as successful, but are not successful.
+This is essentially saying "pursue as many leads a possible because even with a small hit rate generates enormous revenue".
+
+At a .1 probability threshold, if approximately 104.7 conversions per 1,000 leads pursued and each conversion is on average \$70,000 average total Mx contract value over a 2-4 year contract term. Then \$70,000 \* 104.7 = \~\$7.3 million in revenue that reflects the full lifetime value of each converted lead. 
+Even at a \$1,000 outreach cost \* 300 leads pursued = \$300,000 in cost.
+The net value is still \~\$7 million for the lifetime value.
+The cost of \$300,000 is almost irrelevant against a \$70,000 contract deal.
+
+# Team Contributions
+
+-   Gaby: Data setup, Logistic Regression (baseline model), Decision Tree, interpretations
+-   Joel: Random Forest, XGBoost models, interpretations
+-   Josh: EBM Model and interpretations
+-   Corinn: Extra EBM shape function plots, ideal customer profile, raw data conversion rates,
+            hypothetical scenarios, cost table, interpretations
