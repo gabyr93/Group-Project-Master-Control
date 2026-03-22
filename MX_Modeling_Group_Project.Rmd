@@ -863,7 +863,8 @@ plot(mx_ebm, n_terms = 15)
 plot(mx_ebm, term = "acct_territory_rollup", horizontal = TRUE)
 
 # List any detected pairwise interactions
-mx_ebm$term_names_[grepl("&", mx_ebm$term_names_)]
+# Compressed to 20 rows for compiling simplicity 
+head(mx_ebm$term_names_[grepl("&", mx_ebm$term_names_)], n=20)
 ```
 
 ### Interpretation of EBM Global Explanation
