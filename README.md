@@ -39,7 +39,7 @@ Based on our EBM model (ROC-AUC of 0.86), here is who MasterControl should prior
 | Channel | Direct/Inbound, Events | Email, External Demand Gen |
 | Job Title | Founders, Production/Plant/Engineering Managers | QA Directors, Quality Specialists |
 
-**Important note on job titles:** QA Directors and Quality Specialists are not bad leads — they are likely strong fits for QX. We recommend rerouting them rather than discarding them, turning an MX loss into a QX opportunity.
+**Important note on job titles:** QA Directors and Quality Specialists are not bad leads, they are likely strong fits for QX. We recommend rerouting them rather than discarding them, turning an MX loss into a QX opportunity.
 
 ---
 
