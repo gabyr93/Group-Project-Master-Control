@@ -1,6 +1,7 @@
 # MasterControl MX Lead Progression — Group Project
 
 **Team:** Corinn, Josh, Joel, and Gaby
+
 **Course:** IS 6813 — Spring 2026
 
 ---
@@ -44,18 +45,18 @@ Based on our EBM model (ROC-AUC of 0.86), here is who MasterControl should prior
 
 ## Model Performance
 
-We compared multiple classification models. The **Explainable Boosting Machine (EBM)** was selected as the final model with a **ROC-AUC of 0.86** — the best performance tested — while remaining fully interpretable. Unlike black-box models, the EBM produces a shape function for each feature, meaning Sales can understand exactly why any individual lead scored high or low.
+We compared multiple classification models. The **Explainable Boosting Machine (EBM)** was selected as the final model with a **ROC-AUC of 0.86**, the best performance tested, while remaining fully interpretable. Unlike black-box models, the EBM produces a shape function for each feature, meaning Sales can understand exactly why any individual lead scored high or low.
 
 To illustrate the model's practical utility, we scored two hypothetical leads:
 
-- **Sarah** (Production Manager, Medical Device, Americas, P1 – Contact Us, SEO): **97.2% predicted conversion probability — 7.52x above baseline**
-- **David** (QA Director, Unknown industry, APAC, No Priority, Online Ads): **2.5% predicted conversion probability — 0.19x baseline**
+- **Sarah** (Production Manager, Medical Device, Americas, P1 – Contact Us, SEO): **97.2% predicted conversion probability: 7.52x above baseline**
+- **David** (QA Director, Unknown industry, APAC, No Priority, Online Ads): **2.5% predicted conversion probability: 0.19x baseline**
 
 ---
 
 ## Business Value
 
-At a 0.10 probability threshold, the model identifies approximately 105 conversions per 1,000 leads pursued. At an average MX contract value of $70,000, that represents roughly **$7.3 million in expected lifetime revenue per 1,000 leads** — with outreach costs that are almost negligible in comparison even at $1,000 per lead.
+At a 0.10 probability threshold, the model identifies approximately 105 conversions per 1,000 leads pursued. At an average MX contract value of $70,000, that represents roughly **$7.3 million in expected lifetime revenue per 1,000 leads** with outreach costs that are almost negligible in comparison even at $1,000 per lead.
 
 Increasing the MX progression rate from 12.7% to 16–18% would represent a ~50% improvement in MX sales success and meaningfully close the gap with QX.
 
