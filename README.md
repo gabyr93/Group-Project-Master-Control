@@ -22,7 +22,7 @@ The biggest insight from this project is that **how a lead engages matters more 
 - **Job title:** Who the lead is matters nearly as much as how they engaged
 - **Campaign channel:** SEO, Direct/Inbound, and Events significantly outperform Email and External Demand Gen for MX
 
-A second key finding: **missing account data is not noise, it is a warning sign.** Leads with incomplete site or manufacturing enrichment convert at 0.88%, versus 18.84% for fully enriched leads — a 21x difference.
+A second key finding: **missing account data is not noise, it is a warning sign.** Leads with incomplete site or manufacturing enrichment convert at 0.88%, versus 18.84% for fully enriched leads, a 21x difference.
 
 ---
 
