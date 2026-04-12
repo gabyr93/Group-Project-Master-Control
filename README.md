@@ -5,7 +5,7 @@
 
 ## Project Summary
 
-MasterControl's MX product (Manufacturing Solutions) converts leads at 12.7%, significantly below its QX product at 19.7%. This project analyzed 16,644 historical QAL (Qualified Account Lead) records spanning January 2024 through December 2025 to identify which account profiles and contact characteristics drive higher MX conversion — and to build a model that scores and ranks individual leads by their likelihood of success.
+MasterControl's MX product (Manufacturing Solutions) converts leads at 12.7%, significantly below its QX product at 19.7%. This project analyzed 16,644 historical QAL (Qualified Account Lead) records spanning January 2024 through December 2025 to identify which account profiles and contact characteristics drive higher MX conversion and to build a model that scores and ranks individual leads by their likelihood of success.
 
 The goal: help MasterControl Sales and Marketing focus their resources on the leads most likely to progress to SQL, SQO, or Won.
 
